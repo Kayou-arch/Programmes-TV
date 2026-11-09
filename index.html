@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#121A33">
+<title>Programme TNT</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800;900&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#EDF1F8; --surface:#FFFFFF; --ink:#18203A; --muted:#5C6684; --line:#D6DCEA;
+  --signal:#E8A300; --signal-ink:#18203A; --fresh:#0B7FA6; --live:#D2333F;
+  --num:#18203A; --chip:#E1E7F3; --shade:rgba(10,14,30,.45);
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#121A33; --surface:#1A2445; --ink:#EEF1FA; --muted:#9AA4C4; --line:#2A3660;
+    --signal:#FFC93C; --signal-ink:#121A33; --fresh:#5FD3F5; --live:#FF5C68;
+    --num:#FFC93C; --chip:#24305A; --shade:rgba(0,0,0,.6); color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#121A33; --surface:#1A2445; --ink:#EEF1FA; --muted:#9AA4C4; --line:#2A3660;
+  --signal:#FFC93C; --signal-ink:#121A33; --fresh:#5FD3F5; --live:#FF5C68;
+  --num:#FFC93C; --chip:#24305A; --shade:rgba(0,0,0,.6); color-scheme:dark;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:Figtree,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.4;-webkit-font-smoothing:antialiased}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+button{font:inherit;color:inherit;cursor:pointer}
+:focus-visible{outline:3px solid var(--fresh);outline-offset:2px;border-radius:6px}
+.wrap{max-width:560px;margin:0 auto}
+
+header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding:14px 16px 10px;border-bottom:1px solid var(--line)}
+.titlebar{display:flex;align-items:center;justify-content:space-between;gap:12px}
+h1{margin:0;font-family:"Big Shoulders Display",Impact,"Arial Narrow",sans-serif;font-weight:900;font-size:1.9rem;line-height:1;white-space:nowrap}
+h1 span{color:var(--signal)}
+.theme{white-space:nowrap;flex:none;background:none;border:1px solid var(--line);border-radius:999px;padding:6px 12px;font-size:.85rem;color:var(--muted)}
+
+.seg{display:grid;grid-template-columns:1fr 1fr;background:var(--chip);border-radius:12px;padding:3px;margin-top:12px}
+.seg button{border:0;background:transparent;border-radius:9px;padding:8px;font-weight:700;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+
+.days[hidden]{display:none}
+.days{display:flex;gap:6px;overflow-x:auto;margin:10px -16px 0;padding:0 16px 2px;scrollbar-width:none}
+.days::-webkit-scrollbar,.filters::-webkit-scrollbar{display:none}
+.day{flex:0 0 auto;border:0;background:var(--chip);border-radius:12px;padding:6px 12px;text-align:center;min-width:56px}
+.day b{display:block;font-family:"Big Shoulders Display",Impact,sans-serif;font-size:1.5rem;line-height:1;font-weight:800}
+.day small{font-size:.75rem;color:var(--muted)}
+.day[aria-pressed="true"]{background:var(--signal);color:var(--signal-ink)}
+.day[aria-pressed="true"] small{color:var(--signal-ink)}
+
+.filters{display:flex;gap:6px;overflow-x:auto;margin:10px -16px 0;padding:0 16px;scrollbar-width:none}
+.f{flex:0 0 auto;border:1px solid var(--line);background:transparent;border-radius:999px;padding:5px 12px;font-size:.85rem;font-weight:600;color:var(--muted)}
+.f[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+
+.datehead{padding:16px 16px 4px}
+.datehead h2{margin:0;font-size:1.25rem;font-weight:700}
+.datehead p{margin:2px 0 0;color:var(--muted);font-size:.85rem}
+.datehead p.warn{color:var(--live)}
+
+ul.grid{list-style:none;margin:0;padding:0 8px 8px}
+.row{display:grid;grid-template-columns:46px 56px 1fr auto;gap:0 10px;align-items:start;background:var(--surface);border-radius:14px;padding:12px 8px 12px 6px;margin:6px 0;cursor:pointer}
+.row.quiet{background:transparent;border:1px dashed var(--line)}
+.n{font-family:"Big Shoulders Display",Impact,"Arial Narrow",sans-serif;font-weight:900;font-size:2.3rem;line-height:.9;text-align:center;color:var(--num);font-variant-numeric:tabular-nums}
+.quiet .n{color:var(--muted);opacity:.7}
+.thumb{width:56px;height:56px;border-radius:12px;display:grid;place-items:center;color:var(--tc,var(--muted));background:var(--chip);background:color-mix(in srgb,var(--tc,var(--muted)) 16%,transparent)}
+.thumb svg{width:30px;height:30px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.quiet .thumb{background:transparent;border:1px dashed var(--line)}
+.body{min-width:0}
+.ch{display:flex;gap:8px;align-items:baseline;font-size:.82rem;color:var(--muted);font-weight:600}
+.ch time{margin-left:auto;font-variant-numeric:tabular-nums}
+.t{margin:2px 0 0;font-size:1.05rem;font-weight:700;line-height:1.25}
+.quiet .t{font-weight:500;color:var(--muted);font-size:.95rem}
+.d{margin:3px 0 0;font-size:.9rem;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+.tag{font-size:.75rem;font-weight:600;border-radius:6px;padding:2px 7px;background:var(--chip);color:var(--muted)}
+.tag.new{background:transparent;color:var(--fresh);box-shadow:inset 0 0 0 1.5px var(--fresh)}
+.tag.live{background:var(--live);color:#fff}
+.bar{height:4px;border-radius:2px;background:var(--chip);margin-top:8px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--signal)}
+.extra{margin:8px 0 0;font-size:.85rem;color:var(--ink);border-left:3px solid var(--signal);padding-left:8px}
+.star{border:0;background:none;padding:4px 6px;font-size:1.3rem;line-height:1;color:var(--line)}
+.star[aria-pressed="true"]{color:var(--signal)}
+
+.empty{padding:40px 24px;text-align:center;color:var(--muted)}
+.empty button{margin-top:10px;border:0;background:var(--signal);color:var(--signal-ink);font-weight:700;border-radius:999px;padding:8px 16px}
+.skel{height:84px;border-radius:14px;margin:6px 0;background:var(--surface);opacity:.6}
+
+.sheet-bg{position:fixed;inset:0;background:var(--shade);z-index:20;display:none}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:21;max-width:560px;margin:0 auto;max-height:85%;overflow:auto;background:var(--bg);border-radius:20px 20px 0 0;padding:8px 16px calc(20px + env(safe-area-inset-bottom,0px));transform:translateY(105%);transition:transform .25s ease}
+.sheet.open{transform:none}
+.sheet-bg.open{display:block}
+.grab{width:40px;height:5px;border-radius:3px;background:var(--line);margin:4px auto 10px}
+.sheet header{z-index:2;display:flex;align-items:center;gap:12px;position:sticky;top:-8px;background:var(--bg);padding:6px 0 10px}
+.sheet header .n{font-size:2.6rem}
+.sheet h3{margin:0;font-size:1.2rem}
+.sheet .close{margin-left:auto;border:1px solid var(--line);background:none;border-radius:999px;padding:6px 12px;font-size:.85rem}
+.slot{display:grid;grid-template-columns:52px 1fr;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+.slot time{font-weight:700;font-variant-numeric:tabular-nums}
+.slot.now{background:var(--surface);border-radius:12px;padding:10px;margin:0 -10px;border-top-color:transparent}
+.slot.past{opacity:.55}
+.slot .d{-webkit-line-clamp:4}
+
+footer{padding:18px 20px 32px;color:var(--muted);font-size:.8rem;text-align:center}
+@media (prefers-reduced-motion: reduce){.sheet{transition:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="titlebar">
+      <h1>Programme <span>TNT</span></h1>
+      <button class="theme" id="theme" type="button">Thème auto</button>
+    </div>
+    <div class="seg" role="group" aria-label="Vue">
+      <button type="button" id="vNow" aria-pressed="true">Maintenant</button>
+      <button type="button" id="vNight" aria-pressed="false">Ce soir</button>
+    </div>
+    <nav class="days" id="days" aria-label="Choisir le jour" hidden></nav>
+    <div class="filters" id="filters" role="group" aria-label="Filtrer"></div>
+  </header>
+
+  <section class="datehead" aria-live="polite">
+    <h2 id="dayTitle">Chargement…</h2>
+    <p id="daySub"></p>
+  </section>
+
+  <ul class="grid" id="grid"><li class="skel"></li><li class="skel"></li><li class="skel"></li></ul>
+
+  <footer>Programmes issus du guide XMLTV public de xmltvfr.fr, mis à jour automatiquement. Touchez une chaîne pour voir toute sa journée.</footer>
+</div>
+
+<div class="sheet-bg" id="sheetBg"></div>
+<section class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" hidden></section>
+
+<script>
+const CHANNELS = [
+  [1,"TF1"],[2,"France 2"],[3,"France 3"],[4,"France 4"],[5,"France 5"],[6,"M6"],[7,"Arte"],
+  [8,"LCP-Public Sénat"],[9,"W9"],[10,"TMC"],[11,"TFX"],[12,"Gulli"],[13,"BFMTV"],[14,"CNews"],
+  [15,"LCI"],[16,"franceinfo"],[17,"CStar"],[18,"T18"],[19,"Novo19"],[20,"TF1 Séries Films"],
+  [21,"L’Équipe"],[22,"6ter"],[23,"RMC Story"],[24,"RMC Découverte"],[25,"RMC Life"],[26,"Paris Première"]
+];
+const TZ = "Europe/Paris";
+
+// ---------- Genres et vignettes ----------
+const G = {F:"Film",S:"Série",SP:"Sport",DV:"Divertissement",DOC:"Documentaire",MAG:"Magazine",TV:"Téléfilm",SH:"Spectacle",AN:"Jeunesse",IN:"Info",O:"Autre"};
+function genre(cat){
+  const c = (cat||"").toLowerCase();
+  if (!c) return G.O;
+  if (c.includes("téléfilm") || c.includes("telefilm")) return G.TV;
+  if (/(animation|dessin anim|jeunesse|enfant)/.test(c)) return G.AN;
+  if (c.includes("documentaire")) return G.DOC;
+  if (c.includes("film") || c.includes("cinéma")) return G.F;
+  if (/(série|serie|feuilleton|sitcom)/.test(c)) return G.S;
+  if (c.includes("sport")) return G.SP;
+  if (/(information|journal|météo|meteo|actualité|politique|débat)/.test(c)) return G.IN;
+  if (/(magazine|reportage)/.test(c)) return G.MAG;
+  if (/(spectacle|théâtre|theatre|concert|musique|opéra|opera|ballet|humour)/.test(c)) return G.SH;
+  if (/(divertissement|jeu|variét|téléréalité|telerealite|talk)/.test(c)) return G.DV;
+  return G.O;
+}
+const ART = {
+  "Film":["#D2333F",'<rect x="3" y="9" width="18" height="11" rx="1.5"/><path d="M3 9l1.5-4.5 16 2.5-.5 2M8.5 5.2l2 3.6M14 6l2 3"/>'],
+  "Série":["#6C5CE7",'<rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/>'],
+  "Sport":["#1E9E5A",'<circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18M5.6 5.6c3.5 3.5 3.5 9.3 0 12.8M18.4 5.6c-3.5 3.5-3.5 9.3 0 12.8"/>'],
+  "Divertissement":["#E8A300",'<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"/>'],
+  "Documentaire":["#0B7FA6",'<path d="M3 19l6-9 4 5 3-4 5 8z"/><circle cx="17" cy="6" r="2"/>'],
+  "Magazine":["#A0682E",'<circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/>'],
+  "Téléfilm":["#C2185B",'<rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 14.5l-2.6-2.5a1.6 1.6 0 0 1 2.6-1.9 1.6 1.6 0 0 1 2.6 1.9z"/>'],
+  "Spectacle":["#9C27B0",'<path d="M3 4h18M4 4c0 7 3 11 6 13M20 4c0 7-3 11-6 13M4 20h16"/>'],
+  "Jeunesse":["#F06A2A",'<path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6 6.6 19.5l1.2-6L3.3 9.3l6.1-.7z"/>'],
+  "Info":["#3A6FD8",'<circle cx="12" cy="12" r="2"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8"/>'],
+  "Autre":["#7A86A8",'<rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4M8 11h8"/>']
+};
+function thumb(g){
+  const a = g ? ART[g] : null, box = document.createElement("div");
+  box.className = "thumb"; box.setAttribute("aria-hidden","true");
+  if (a) box.style.setProperty("--tc", a[0]);
+  box.innerHTML = '<svg viewBox="0 0 24 24">' + (a ? a[1] : '<path d="M9 9a3 3 0 1 1 3 3v2M12 17.5v.5"/>') + '</svg>';
+  return box;
+}
+
+// ---------- Outils ----------
+const store = {
+  get(k,d){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):d; }catch(e){ return d; } },
+  set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} }
+};
+const fTime = new Intl.DateTimeFormat("fr-FR",{timeZone:TZ,hour:"2-digit",minute:"2-digit"});
+const fKey = new Intl.DateTimeFormat("en-CA",{timeZone:TZ,year:"numeric",month:"2-digit",day:"2-digit"});
+const hm = s => fTime.format(new Date(s*1000)).replace(":","h");
+const keyOf = d => fKey.format(d);
+const nowS = () => Math.floor(Date.now()/1000);
+function parisHour(s){ const [h,m] = fTime.format(new Date(s*1000)).split(":").map(Number); return h + m/60; }
+function niceDay(k, long){
+  const d = new Date(k+"T12:00:00");
+  return d.toLocaleDateString("fr-FR", long ? {weekday:"long",day:"numeric",month:"long"} : {weekday:"short"});
+}
+function el(tag, attrs={}, ...kids){
+  const e = document.createElement(tag);
+  for (const [k,v] of Object.entries(attrs)){
+    if (v==null) continue;
+    if (k==="class") e.className=v; else if (k.startsWith("on")) e.addEventListener(k.slice(2),v); else e.setAttribute(k,v);
+  }
+  for (const k of kids){ if (k==null||k===false) continue; e.append(k.nodeType?k:document.createTextNode(k)); }
+  return e;
+}
+
+// ---------- État ----------
+const FILTERS = [["all","Tout"],["fav","Mes chaînes ★"],[G.F,"Films"],[G.S,"Séries"],[G.SP,"Sport"],[G.DV,"Divertissement"],[G.DOC,"Documentaires"],[G.MAG,"Magazines"],[G.IN,"Info"],[G.AN,"Jeunesse"],["new","Inédits"]];
+const state = { view:"now", day:keyOf(new Date()), filter:"all", favs:new Set(store.get("tnt-favs",[])), index:null, cache:{}, offline:false };
+
+async function getJSON(url){
+  const r = await fetch(url + (url.includes("?")?"&":"?") + "v=" + Date.now(), {cache:"no-store"});
+  if (!r.ok) throw new Error(r.status);
+  return r.json();
+}
+async function loadIndex(){
+  try{
+    state.index = await getJSON("data/index.json");
+    store.set("tnt-index", state.index);
+  }catch(e){
+    state.index = store.get("tnt-index", null);
+    state.offline = true;
+  }
+}
+async function loadDay(k){
+  if (state.cache[k]) return state.cache[k];
+  try{
+    const d = await getJSON("data/"+k+".json");
+    state.cache[k] = d;
+    try{ localStorage.setItem("tnt-day-"+k, JSON.stringify(d)); }catch(e){}
+    return d;
+  }catch(e){
+    state.offline = true;
+    const d = store.get("tnt-day-"+k, null);
+    if (d) state.cache[k] = d;
+    return d;
+  }
+}
+function cleanOldDays(){
+  try{
+    const keep = new Set((state.index?.days||[]).map(k=>"tnt-day-"+k));
+    for (let i=localStorage.length-1;i>=0;i--){ const k=localStorage.key(i); if (k && k.startsWith("tnt-day-") && !keep.has(k)) localStorage.removeItem(k); }
+  }catch(e){}
+}
+
+// ---------- Choix des programmes ----------
+function onAir(list, t){ return (list||[]).find(p => p.s<=t && p.e>t); }
+function nextAfter(list, p){ if (!list||!p) return null; const i=list.indexOf(p); return list[i+1]||null; }
+function primeTime(list, dayKey){
+  if (!list) return null;
+  const onDay = list.filter(p => keyOf(new Date(p.s*1000))===dayKey);
+  return onDay.find(p => { const h=parisHour(p.s); return h>=20.75 && h<22; })
+      || onDay.find(p => { const a=parisHour(p.s), b=parisHour(p.e); return a<=21.2 && (b>21.2 || b<a); })
+      || null;
+}
+function passes(num, p){
+  const f = state.filter;
+  if (f==="all") return true;
+  if (f==="fav") return state.favs.has(num);
+  if (!p) return false;
+  if (f==="new") return !!p.n;
+  return genre(p.c)===f;
+}
+
+// ---------- Rendu ----------
+function renderDays(){
+  const nav = document.getElementById("days"); nav.textContent="";
+  nav.hidden = state.view!=="night";
+  const today = keyOf(new Date());
+  for (const k of (state.index?.days||[]).filter(k=>k>=today)){
+    const d = new Date(k+"T12:00:00");
+    nav.append(el("button",{class:"day",type:"button","aria-pressed":String(k===state.day),onclick:()=>{state.day=k;render();}},
+      el("small",{}, k===today ? "ce soir" : niceDay(k)), el("b",{}, String(d.getDate()))));
+  }
+}
+function renderFilters(){
+  const box = document.getElementById("filters"); box.textContent="";
+  for (const [id,label] of FILTERS)
+    box.append(el("button",{class:"f",type:"button","aria-pressed":String(id===state.filter),onclick:()=>{state.filter=id;render();}},label));
+}
+function updatedLabel(){
+  if (!state.index) return "";
+  const u = new Date(state.index.updated), h = Math.round((Date.now()-u)/36e5);
+  const when = h<1 ? "il y a moins d’une heure" : h<48 ? "il y a "+h+" h" : "le "+u.toLocaleDateString("fr-FR");
+  return "Programmes mis à jour " + when + (state.offline ? " (hors connexion)" : "");
+}
+
+async function renderGrid(){
+  const grid = document.getElementById("grid");
+  const title = document.getElementById("dayTitle"), sub = document.getElementById("daySub");
+  const today = keyOf(new Date());
+  if (!state.index){
+    grid.textContent=""; title.textContent="Programmes indisponibles";
+    sub.textContent="Impossible de charger le guide. Vérifiez votre connexion puis rouvrez l’appli."; sub.className="warn";
+    return;
+  }
+  const dayKey = state.view==="now" ? today : state.day;
+  const data = await loadDay(dayKey) || {};
+  const t = nowS();
+  title.textContent = state.view==="now" ? "En ce moment, " + hm(t) : (dayKey===today?"Ce soir, ":"") + niceDay(dayKey,true).replace(/^./,c=>c.toUpperCase());
+  sub.textContent = updatedLabel();
+  sub.className = state.offline ? "warn" : "";
+  grid.textContent = "";
+  let shown = 0;
+  for (const [num,name] of CHANNELS){
+    const list = data[num];
+    const p = state.view==="now" ? onAir(list,t) : primeTime(list,dayKey);
+    if (!passes(num,p)) continue;
+    shown++;
+    const g = p ? genre(p.c) : null, fav = state.favs.has(num), nx = nextAfter(list,p);
+    let bar = null;
+    if (p && state.view==="now"){ const pct = Math.min(100,Math.max(0,(t-p.s)/(p.e-p.s)*100)); bar = el("div",{class:"bar"}, el("i",{style:"width:"+pct.toFixed(1)+"%"})); }
+    grid.append(el("li",{class:"row"+(p?"":" quiet"),onclick:e=>{ if(!e.target.closest(".star")) openSheet(num,dayKey); }},
+      el("div",{class:"n","aria-hidden":"true"},String(num)),
+      thumb(g),
+      el("div",{class:"body"},
+        el("div",{class:"ch"}, el("span",{},name), p ? el("time",{}, hm(p.s)+" – "+hm(p.e)) : null),
+        el("p",{class:"t"}, p ? p.t : "Programme non disponible"),
+        p && (p.st||p.d) ? el("p",{class:"d"}, p.st || p.d) : null,
+        p ? el("div",{class:"tags"},
+          p.l ? el("span",{class:"tag live"},"En direct") : null,
+          p.n ? el("span",{class:"tag new"},"Inédit") : null,
+          el("span",{class:"tag"}, p.c || g)) : null,
+        bar,
+        nx ? el("p",{class:"extra"}, "Ensuite à "+hm(nx.s)+" : "+nx.t) : null
+      ),
+      el("button",{class:"star",type:"button","aria-pressed":String(fav),"aria-label":(fav?"Retirer ":"Ajouter ")+name+(fav?" de mes chaînes":" à mes chaînes"),onclick:()=>toggleFav(num)}, fav?"★":"☆")
+    ));
+  }
+  if (!shown){
+    grid.append(el("li",{class:"empty"},
+      el("p",{}, state.filter==="fav" ? "Touchez l’étoile d’une chaîne pour l’ajouter à vos chaînes." : "Aucun programme de ce type."),
+      el("button",{type:"button",onclick:()=>{state.filter="all";render();}},"Voir toutes les chaînes")));
+  }
+}
+
+// ---------- Journée d’une chaîne ----------
+const sheet = document.getElementById("sheet"), sheetBg = document.getElementById("sheetBg");
+let lastFocus = null;
+async function openSheet(num, dayKey){
+  const name = CHANNELS[num-1][1], data = await loadDay(dayKey) || {}, list = (data[num]||[]).filter(p=>keyOf(new Date(p.s*1000))===dayKey || p.e>new Date(dayKey+"T00:00:00").getTime()/1000);
+  const t = nowS();
+  sheet.textContent = "";
+  sheet.append(el("div",{class:"grab"}),
+    el("header",{}, el("div",{class:"n"},String(num)), el("div",{}, el("h3",{id:"sheetTitle"},name), el("small",{}, niceDay(dayKey,true))),
+      el("button",{class:"close",type:"button",onclick:closeSheet},"Fermer")));
+  if (!list.length) sheet.append(el("p",{class:"d"},"Pas de programme pour cette journée."));
+  let current = null;
+  for (const p of list){
+    const isNow = p.s<=t && p.e>t, past = p.e<=t;
+    const row = el("div",{class:"slot"+(isNow?" now":"")+(past?" past":"")},
+      el("time",{}, hm(p.s)),
+      el("div",{},
+        el("p",{class:"t"}, p.t),
+        p.st ? el("p",{class:"d"}, p.st + (p.ep ? " ("+p.ep+")" : "")) : null,
+        p.d ? el("p",{class:"d"}, p.d) : null,
+        el("div",{class:"tags"}, isNow?el("span",{class:"tag live"},"En cours"):null, p.n?el("span",{class:"tag new"},"Inédit"):null, p.c?el("span",{class:"tag"},p.c):null)));
+    if (isNow) current = row;
+    sheet.append(row);
+  }
+  lastFocus = document.activeElement;
+  sheet.hidden = false; sheetBg.classList.add("open");
+  requestAnimationFrame(()=>{ sheet.classList.add("open"); sheet.querySelector(".close").focus(); if (current) current.scrollIntoView({block:"center"}); });
+}
+function closeSheet(){
+  sheet.classList.remove("open"); sheetBg.classList.remove("open");
+  setTimeout(()=>{ sheet.hidden = true; }, 260);
+  if (lastFocus) lastFocus.focus();
+}
+sheetBg.addEventListener("click", closeSheet);
+document.addEventListener("keydown", e=>{ if (e.key==="Escape" && !sheet.hidden) closeSheet(); });
+
+// ---------- Actions ----------
+function toggleFav(num){
+  state.favs.has(num) ? state.favs.delete(num) : state.favs.add(num);
+  store.set("tnt-favs",[...state.favs]); render();
+}
+function setView(v){
+  state.view = v;
+  document.getElementById("vNow").setAttribute("aria-pressed",String(v==="now"));
+  document.getElementById("vNight").setAttribute("aria-pressed",String(v==="night"));
+  render();
+}
+document.getElementById("vNow").addEventListener("click",()=>setView("now"));
+document.getElementById("vNight").addEventListener("click",()=>setView("night"));
+
+async function render(){
+  renderDays(); renderFilters(); await renderGrid();
+  const sel = document.querySelector('.day[aria-pressed="true"]');
+  if (sel) sel.scrollIntoView({block:"nearest",inline:"center"});
+}
+
+const THEMES=["auto","light","dark"], TL={auto:"Thème auto",light:"Thème clair",dark:"Thème sombre"};
+let theme = store.get("tnt-theme","auto");
+function applyTheme(){
+  if (theme==="auto") document.documentElement.removeAttribute("data-theme"); else document.documentElement.setAttribute("data-theme",theme);
+  document.getElementById("theme").textContent = TL[theme];
+}
+document.getElementById("theme").addEventListener("click",()=>{ theme=THEMES[(THEMES.indexOf(theme)+1)%3]; store.set("tnt-theme",theme); applyTheme(); });
+applyTheme();
+
+// ---------- Démarrage : recharge les données à chaque ouverture ----------
+async function start(){
+  state.offline = false; state.cache = {};
+  await loadIndex(); cleanOldDays();
+  const today = keyOf(new Date());
+  if (!state.index?.days?.includes(state.day) || state.day<today) state.day = today;
+  await render();
+}
+start();
+document.addEventListener("visibilitychange", ()=>{ if (document.visibilityState==="visible") start(); });
+setInterval(()=>{ if (state.view==="now" && document.visibilityState==="visible") renderGrid(); }, 60000);
+</script>
+</body>
+</html>
