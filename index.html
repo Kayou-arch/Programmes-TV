@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#121A33">
+<meta name="theme-color" content="#121A33" id="themeColor">
+<meta name="color-scheme" content="light dark">
 <title>Programme TNT</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
@@ -19,19 +20,19 @@
   box-sizing:border-box;
   padding-top:env(safe-area-inset-top,0px);
   padding-bottom:env(safe-area-inset-bottom,0px);
-  color-scheme:light;
+  color-scheme:light dark;
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
     --bg:#121A33; --surface:#1A2445; --ink:#EEF1FA; --muted:#9AA4C4; --line:#2A3660;
     --signal:#FFC93C; --signal-ink:#121A33; --fresh:#5FD3F5; --live:#FF5C68;
-    --num:#FFC93C; --chip:#24305A; --shade:rgba(0,0,0,.6); color-scheme:dark;
+    --num:#FFC93C; --chip:#24305A; --shade:rgba(0,0,0,.6);
   }
 }
 :root[data-theme="dark"]{
   --bg:#121A33; --surface:#1A2445; --ink:#EEF1FA; --muted:#9AA4C4; --line:#2A3660;
   --signal:#FFC93C; --signal-ink:#121A33; --fresh:#5FD3F5; --live:#FF5C68;
-  --num:#FFC93C; --chip:#24305A; --shade:rgba(0,0,0,.6); color-scheme:dark;
+  --num:#FFC93C; --chip:#24305A; --shade:rgba(0,0,0,.6);
 }
 *,*::before,*::after{box-sizing:inherit}
 html{height:100%}
@@ -47,7 +48,7 @@ h1{margin:0;font-family:"Big Shoulders Display",Impact,"Arial Narrow",sans-serif
 h1 span{color:var(--signal)}
 .theme{white-space:nowrap;flex:none;background:none;border:1px solid var(--line);border-radius:999px;padding:6px 12px;font-size:.85rem;color:var(--muted)}
 
-.seg{display:grid;grid-template-columns:1fr 1fr;background:var(--chip);border-radius:12px;padding:3px;margin-top:12px}
+.seg{display:grid;grid-template-columns:1fr 1fr 1fr;background:var(--chip);border-radius:12px;padding:3px;margin-top:12px}
 .seg button{border:0;background:transparent;border-radius:9px;padding:8px;font-weight:700;color:var(--muted)}
 .seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
 
@@ -60,6 +61,7 @@ h1 span{color:var(--signal)}
 .day[aria-pressed="true"]{background:var(--signal);color:var(--signal-ink)}
 .day[aria-pressed="true"] small{color:var(--signal-ink)}
 
+.filters[hidden]{display:none}
 .filters{display:flex;gap:6px;overflow-x:auto;margin:10px -16px 0;padding:0 16px;scrollbar-width:none}
 .f{flex:0 0 auto;border:1px solid var(--line);background:transparent;border-radius:999px;padding:5px 12px;font-size:.85rem;font-weight:600;color:var(--muted)}
 .f[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--bg)}
@@ -114,6 +116,12 @@ ul.grid{list-style:none;margin:0;padding:0 8px 8px}
 .slot.past{opacity:.55}
 .slot .d{-webkit-line-clamp:4}
 
+.row.st{grid-template-columns:40px 64px 1fr}
+.thumb.poster{width:64px;height:96px;border-radius:8px}
+.row.st .d{-webkit-line-clamp:3}
+.row.st.open .d{-webkit-line-clamp:unset;display:block}
+.note{list-style:none;padding:14px 12px;color:var(--muted);font-size:.85rem;line-height:1.45}
+.note b{color:var(--ink)}
 footer{padding:18px 20px 32px;color:var(--muted);font-size:.8rem;text-align:center}
 @media (prefers-reduced-motion: reduce){.sheet{transition:none}}
 </style>
@@ -128,6 +136,7 @@ footer{padding:18px 20px 32px;color:var(--muted);font-size:.8rem;text-align:cent
     <div class="seg" role="group" aria-label="Vue">
       <button type="button" id="vNow" aria-pressed="true">Maintenant</button>
       <button type="button" id="vNight" aria-pressed="false">Ce soir</button>
+      <button type="button" id="vStream" aria-pressed="false">Streaming</button>
     </div>
     <nav class="days" id="days" aria-label="Choisir le jour" hidden></nav>
     <div class="filters" id="filters" role="group" aria-label="Filtrer"></div>
@@ -227,7 +236,7 @@ function el(tag, attrs={}, ...kids){
 
 // ---------- État ----------
 const FILTERS = [["all","Tout"],["fav","Mes chaînes ★"],[G.F,"Films"],[G.S,"Séries"],[G.SP,"Sport"],[G.DV,"Divertissement"],[G.DOC,"Documentaires"],[G.MAG,"Magazines"],[G.IN,"Info"],[G.AN,"Jeunesse"],["new","Inédits"]];
-const state = { view:"now", day:keyOf(new Date()), filter:"all", favs:new Set(store.get("tnt-favs",[])), index:null, cache:{}, offline:false };
+const state = { stream:null, sub:"series", view:"now", day:keyOf(new Date()), filter:"all", favs:new Set(store.get("tnt-favs",[])), index:null, cache:{}, offline:false };
 
 async function getJSON(url){
   const r = await fetch(url + (url.includes("?")?"&":"?") + "v=" + Date.now(), {cache:"no-store"});
@@ -256,6 +265,10 @@ async function loadDay(k){
     if (d) state.cache[k] = d;
     return d;
   }
+}
+async function loadStream(){
+  try{ state.stream = await getJSON("data/streaming.json"); store.set("tnt-stream", state.stream); }
+  catch(e){ state.stream = store.get("tnt-stream", null); }
 }
 function cleanOldDays(){
   try{
@@ -294,8 +307,14 @@ function renderDays(){
       el("small",{}, k===today ? "ce soir" : niceDay(k)), el("b",{}, String(d.getDate()))));
   }
 }
+const SUBS = [["series","Top 10 séries"],["films","Top 10 films"],["newSeries","Nouvelles séries"],["newFilms","Nouveaux films"]];
 function renderFilters(){
   const box = document.getElementById("filters"); box.textContent="";
+  if (state.view==="stream"){
+    for (const [id,label] of SUBS)
+      box.append(el("button",{class:"f",type:"button","aria-pressed":String(id===state.sub),onclick:()=>{state.sub=id;render();}},label));
+    return;
+  }
   for (const [id,label] of FILTERS)
     box.append(el("button",{class:"f",type:"button","aria-pressed":String(id===state.filter),onclick:()=>{state.filter=id;render();}},label));
 }
@@ -307,6 +326,7 @@ function updatedLabel(){
 }
 
 async function renderGrid(){
+  if (state.view==="stream") return renderStream();
   const grid = document.getElementById("grid");
   const title = document.getElementById("dayTitle"), sub = document.getElementById("daySub");
   const today = keyOf(new Date());
@@ -355,6 +375,61 @@ async function renderGrid(){
   }
 }
 
+// ---------- Streaming ----------
+const MOIS = ["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
+function weekLabel(end){
+  const b = new Date(end+"T12:00:00"), a = new Date(b.getTime()-6*864e5);
+  return "Semaine du " + a.getDate() + (a.getMonth()!==b.getMonth() ? " "+MOIS[a.getMonth()] : "") + " au " + b.getDate() + " " + MOIS[b.getMonth()];
+}
+function renderStream(){
+  const grid = document.getElementById("grid"), title = document.getElementById("dayTitle"), sub = document.getElementById("daySub");
+  grid.textContent = ""; sub.className = "";
+  const S = state.stream, label = SUBS.find(x=>x[0]===state.sub)[1];
+  title.textContent = label + " Netflix";
+  if (!S){
+    sub.textContent = "Données streaming pas encore disponibles.";
+    grid.append(el("li",{class:"note"},"Lance la mise à jour dans l’onglet Actions de GitHub, puis rouvre l’appli."));
+    return;
+  }
+  const isTop = state.sub==="series" || state.sub==="films";
+  const isFilm = state.sub==="films" || state.sub==="newFilms";
+  let items;
+  if (isTop){
+    items = S.top10[state.sub] || [];
+    sub.textContent = "En France, " + weekLabel(S.week).toLowerCase() + ", d’après Netflix";
+  } else {
+    if (!S.news){
+      sub.textContent = "Nouveautés non configurées";
+      grid.append(el("li",{class:"note"}, el("b",{},"Pour afficher les nouveautés et les affiches : "),
+        "crée un compte gratuit sur themoviedb.org, demande une clé d’API, puis ajoute-la dans GitHub (Settings, Secrets and variables, Actions) sous le nom TMDB_KEY. Les explications sont dans le LISEZMOI."));
+      return;
+    }
+    items = S.news[isFilm ? "films" : "series"] || [];
+    sub.textContent = "Arrivés récemment sur Netflix en France";
+  }
+  const g = isFilm ? G.F : G.S;
+  items.forEach((it, i) => {
+    const meta = isTop
+      ? (it.weeks<=1 ? "Nouveau dans le top 10" : it.weeks + " semaines dans le top 10")
+      : (it.date ? "Sorti le " + new Date(it.date+"T12:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"}) : "");
+    const row = el("li",{class:"row st",onclick:()=>row.classList.toggle("open")},
+      el("div",{class:"n","aria-hidden":"true"}, isTop ? String(it.rank) : String(i+1)),
+      (()=>{ const t = thumb(g, it.p); t.classList.add("poster"); return t; })(),
+      el("div",{class:"body"},
+        el("div",{class:"ch"}, el("span",{}, meta), it.y ? el("time",{}, it.y) : null),
+        el("p",{class:"t"}, it.t_fr || it.t),
+        it.season ? el("p",{class:"d"}, it.season) : null,
+        it.o ? el("p",{class:"d"}, it.o) : null,
+        el("div",{class:"tags"},
+          isTop && it.weeks<=1 ? el("span",{class:"tag new"},"Nouveau") : null,
+          el("span",{class:"tag"}, isFilm ? "Film" : "Série"),
+          it.note ? el("span",{class:"tag"}, "★ " + String(it.note).replace(".",",")) : null)));
+    grid.append(row);
+  });
+  if (!items.length) grid.append(el("li",{class:"empty"}, el("p",{},"Rien à afficher pour le moment.")));
+  grid.append(el("li",{class:"note"}, "Top 10 : chiffres officiels publiés chaque semaine par Netflix." + (S.tmdb ? " Affiches et nouveautés : données TMDB. Ce produit utilise l’API de TMDB mais n’est ni approuvé ni certifié par TMDB." : "")));
+}
+
 // ---------- Journée d’une chaîne ----------
 const sheet = document.getElementById("sheet"), sheetBg = document.getElementById("sheetBg");
 let lastFocus = null;
@@ -401,10 +476,12 @@ function setView(v){
   state.view = v;
   document.getElementById("vNow").setAttribute("aria-pressed",String(v==="now"));
   document.getElementById("vNight").setAttribute("aria-pressed",String(v==="night"));
+  document.getElementById("vStream").setAttribute("aria-pressed",String(v==="stream"));
   render();
 }
 document.getElementById("vNow").addEventListener("click",()=>setView("now"));
 document.getElementById("vNight").addEventListener("click",()=>setView("night"));
+document.getElementById("vStream").addEventListener("click",()=>setView("stream"));
 
 async function render(){
   renderDays(); renderFilters(); await renderGrid();
@@ -416,6 +493,8 @@ const THEMES=["auto","light","dark"], TL={auto:"Thème auto",light:"Thème clair
 let theme = store.get("tnt-theme","auto");
 function applyTheme(){
   if (theme==="auto") document.documentElement.removeAttribute("data-theme"); else document.documentElement.setAttribute("data-theme",theme);
+  const dark = theme==="dark" || (theme==="auto" && matchMedia("(prefers-color-scheme: dark)").matches);
+  document.getElementById("themeColor").setAttribute("content", dark ? "#121A33" : "#EDF1F8");
   document.getElementById("theme").textContent = TL[theme];
 }
 document.getElementById("theme").addEventListener("click",()=>{ theme=THEMES[(THEMES.indexOf(theme)+1)%3]; store.set("tnt-theme",theme); applyTheme(); });
@@ -424,7 +503,7 @@ applyTheme();
 // ---------- Démarrage : recharge les données à chaque ouverture ----------
 async function start(){
   state.offline = false; state.cache = {};
-  await loadIndex(); cleanOldDays();
+  await Promise.all([loadIndex(), loadStream()]); cleanOldDays();
   const today = keyOf(new Date());
   if (!state.index?.days?.includes(state.day) || state.day<today) state.day = today;
   await render();
