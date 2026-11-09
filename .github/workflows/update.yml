@@ -19,6 +19,11 @@ jobs:
           python-version: "3.12"
       - name: Télécharger et convertir le guide
         run: python scripts/update.py
+      - name: Top 10 et nouveautés Netflix
+        continue-on-error: true
+        env:
+          TMDB_KEY: ${{ secrets.TMDB_KEY }}
+        run: python scripts/streaming.py
       - name: Enregistrer les nouvelles données
         run: |
           git config user.name "programme-tnt-bot"
