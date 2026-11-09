@@ -90,6 +90,7 @@ ul.grid{list-style:none;margin:0;padding:0 8px 8px}
 .tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
 .tag{font-size:.75rem;font-weight:600;border-radius:6px;padding:2px 7px;background:var(--chip);color:var(--muted)}
 .tag.new{background:transparent;color:var(--fresh);box-shadow:inset 0 0 0 1.5px var(--fresh)}
+.yt{display:inline-flex;align-items:center;gap:4px;font-size:.75rem;font-weight:700;border-radius:6px;padding:2px 8px;background:#E62117;color:#fff;text-decoration:none}
 .tag.live{background:var(--live);color:#fff}
 .bar{height:4px;border-radius:2px;background:var(--chip);margin-top:8px;overflow:hidden}
 .bar i{display:block;height:100%;background:var(--signal)}
@@ -224,6 +225,15 @@ function niceDay(k, long){
   const d = new Date(k+"T12:00:00");
   return d.toLocaleDateString("fr-FR", long ? {weekday:"long",day:"numeric",month:"long"} : {weekday:"short"});
 }
+// Lien vers les bandes-annonces sur YouTube (recherche, aucune clé nécessaire)
+const NO_TRAILER = new Set(["Info","Sport"]);
+function trailer(title, kind, year){
+  if (!title) return null;
+  const q = [title, kind==="film" ? "film" : kind==="serie" ? "série" : "", year||"", "bande annonce"].filter(Boolean).join(" ");
+  return el("a",{class:"yt",href:"https://www.youtube.com/results?search_query="+encodeURIComponent(q),target:"_blank",rel:"noopener",
+    "aria-label":"Bande-annonce de "+title+" sur YouTube",onclick:e=>e.stopPropagation()},"▶ Bande-annonce");
+}
+function kindOf(g){ return g===G.F||g===G.TV||g===G.AN ? "film" : g===G.S ? "serie" : ""; }
 function el(tag, attrs={}, ...kids){
   const e = document.createElement(tag);
   for (const [k,v] of Object.entries(attrs)){
@@ -351,7 +361,7 @@ async function renderGrid(){
     const g = p ? genre(p.c) : null, fav = state.favs.has(num), nx = nextAfter(list,p);
     let bar = null;
     if (p && state.view==="now"){ const pct = Math.min(100,Math.max(0,(t-p.s)/(p.e-p.s)*100)); bar = el("div",{class:"bar"}, el("i",{style:"width:"+pct.toFixed(1)+"%"})); }
-    grid.append(el("li",{class:"row"+(p?"":" quiet"),onclick:e=>{ if(!e.target.closest(".star")) openSheet(num,dayKey); }},
+    grid.append(el("li",{class:"row"+(p?"":" quiet"),onclick:e=>{ if(!e.target.closest(".star,.yt")) openSheet(num,dayKey); }},
       el("div",{class:"n","aria-hidden":"true"},String(num)),
       thumb(g, p && p.i),
       el("div",{class:"body"},
@@ -361,7 +371,8 @@ async function renderGrid(){
         p ? el("div",{class:"tags"},
           p.l ? el("span",{class:"tag live"},"En direct") : null,
           p.n ? el("span",{class:"tag new"},"Inédit") : null,
-          el("span",{class:"tag"}, p.c || g)) : null,
+          el("span",{class:"tag"}, p.c || g),
+          NO_TRAILER.has(g) ? null : trailer(p.t, kindOf(g))) : null,
         bar,
         nx ? el("p",{class:"extra"}, "Ensuite à "+hm(nx.s)+" : "+nx.t) : null
       ),
@@ -398,14 +409,14 @@ function renderStream(){
     items = S.top10[state.sub] || [];
     sub.textContent = "En France, " + weekLabel(S.week).toLowerCase() + ", d’après Netflix";
   } else {
-    if (!S.news){
+    if (!S.news || !(S.news.films||[]).length && !(S.news.series||[]).length && !S.sources){
       sub.textContent = "Nouveautés non configurées";
       grid.append(el("li",{class:"note"}, el("b",{},"Pour afficher les nouveautés et les affiches : "),
         "crée un compte gratuit sur themoviedb.org, demande une clé d’API, puis ajoute-la dans GitHub (Settings, Secrets and variables, Actions) sous le nom TMDB_KEY. Les explications sont dans le LISEZMOI."));
       return;
     }
     items = S.news[isFilm ? "films" : "series"] || [];
-    sub.textContent = "Arrivés récemment sur Netflix en France";
+    sub.textContent = isFilm ? "Films sortis récemment sur Netflix" : "Nouvelles séries et nouvelles saisons sur Netflix";
   }
   const g = isFilm ? G.F : G.S;
   items.forEach((it, i) => {
@@ -423,11 +434,12 @@ function renderStream(){
         el("div",{class:"tags"},
           isTop && it.weeks<=1 ? el("span",{class:"tag new"},"Nouveau") : null,
           el("span",{class:"tag"}, isFilm ? "Film" : "Série"),
-          it.note ? el("span",{class:"tag"}, "★ " + String(it.note).replace(".",",")) : null)));
+          it.note ? el("span",{class:"tag"}, "★ " + String(it.note).replace(".",",")) : null,
+          trailer(it.t_fr || it.t, isFilm ? "film" : "serie", isFilm ? it.y : ""))));
     grid.append(row);
   });
   if (!items.length) grid.append(el("li",{class:"empty"}, el("p",{},"Rien à afficher pour le moment.")));
-  grid.append(el("li",{class:"note"}, "Top 10 : chiffres officiels publiés chaque semaine par Netflix." + (S.tmdb ? " Affiches et nouveautés : données TMDB. Ce produit utilise l’API de TMDB mais n’est ni approuvé ni certifié par TMDB." : "")));
+  grid.append(el("li",{class:"note"}, "Top 10 : chiffres officiels publiés chaque semaine par Netflix. Affiches, résumés et nouveautés : " + ((S.sources||[]).filter(x=>!x.startsWith("Netflix")).join(", ") || "—") + "." + (S.tmdb ? " Ce produit utilise l’API de TMDB mais n’est ni approuvé ni certifié par TMDB." : "")));
 }
 
 // ---------- Journée d’une chaîne ----------
@@ -451,7 +463,8 @@ async function openSheet(num, dayKey){
         p.i && (isNow || !past) ? thumb(genre(p.c), p.i) : null,
         p.st ? el("p",{class:"d"}, p.st + (p.ep ? " ("+p.ep+")" : "")) : null,
         p.d ? el("p",{class:"d"}, p.d) : null,
-        el("div",{class:"tags"}, isNow?el("span",{class:"tag live"},"En cours"):null, p.n?el("span",{class:"tag new"},"Inédit"):null, p.c?el("span",{class:"tag"},p.c):null)));
+        el("div",{class:"tags"}, isNow?el("span",{class:"tag live"},"En cours"):null, p.n?el("span",{class:"tag new"},"Inédit"):null, p.c?el("span",{class:"tag"},p.c):null,
+          NO_TRAILER.has(genre(p.c)) ? null : trailer(p.t, kindOf(genre(p.c))))));
     if (isNow) current = row;
     sheet.append(row);
   }
