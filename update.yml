@@ -1,0 +1,28 @@
+name: Mise à jour des programmes TV
+
+on:
+  schedule:
+    - cron: "15 3 * * *"   # chaque nuit (vers 4h15 / 5h15 à Paris)
+    - cron: "15 15 * * *"  # et chaque après-midi
+  workflow_dispatch:        # bouton « Run workflow » pour lancer à la main
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Télécharger et convertir le guide
+        run: python scripts/update.py
+      - name: Enregistrer les nouvelles données
+        run: |
+          git config user.name "programme-tnt-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data
+          git diff --cached --quiet || git commit -m "Programmes du $(date +'%d/%m/%Y %H:%M')"
+          git push
