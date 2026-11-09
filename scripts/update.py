@@ -130,6 +130,9 @@ def main():
                     if ep is not None and ep.text: item["ep"] = ep.text.strip()
                     if el.find("new") is not None or el.find("premiere") is not None: item["n"] = 1
                     if el.find("live") is not None: item["l"] = 1
+                    ic = el.find("icon")
+                    if ic is not None and ic.get("src", "").startswith(("http://", "https://")):
+                        item["i"] = "https://" + ic.get("src").split("://", 1)[1]
                     raw.setdefault(num, {}).setdefault(cid, []).append(item)
             el.clear()
 
