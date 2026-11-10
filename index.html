@@ -171,21 +171,23 @@ const TZ = "Europe/Paris";
 
 // ---------- Genres et vignettes ----------
 const G = {F:"Film",S:"Série",SP:"Sport",DV:"Divertissement",DOC:"Documentaire",MAG:"Magazine",TV:"Téléfilm",SH:"Spectacle",AN:"Jeunesse",IN:"Info",O:"Autre"};
-const FILM_GENRES = /(comédie|comedie|drame|thriller|policier|action|aventure|western|horreur|épouvante|fantastique|science-fiction|guerre|romance|romantique|péplum|catastrophe|biopic|historique|espionnage|suspense|comédie musicale|érotique|arts martiaux|cape et d'épée|road movie)/;
+const FILM_GENRES = /(comédie|comedie|drame|dramatique|thriller|policier|action|aventure|western|horreur|épouvante|fantastique|science-fiction|guerre|romance|romantique|péplum|catastrophe|biopic|historique|espionnage|suspense|comédie musicale|érotique|arts martiaux|cape et d'épée|road movie)/;
+const SPORTS = /(sport|rugby|football|foot\b|tennis|cyclisme|basket|handball|formule 1|moto|golf|boxe|ski|athlétisme|natation|équitation|voile|volley|pétanque|mma|catch|biathlon|patinage|nfl|ufc)/;
+function cleanCat(cat){ return (cat||"").replace(/<[^>]*>/g,"").replace(/^\s*inédit\s*$/i,"").trim(); }
 function genre(cat){
-  const c = (cat||"").toLowerCase();
+  const c = cleanCat(cat).toLowerCase();
   if (!c) return G.O;
   if (c.includes("téléfilm") || c.includes("telefilm")) return G.TV;
   if (c.includes("documentaire")) return G.DOC;
   if (c.includes("film") || c.includes("cinéma")) return G.F;
   if (/(animation|dessin anim|jeunesse|enfant)/.test(c)) return G.AN;
-  if (/(série|serie|feuilleton|sitcom|saga)/.test(c)) return G.S;
-  if (c.includes("sport")) return G.SP;
-  if (/(information|journal|météo|meteo|actualité|politique|débat|interview)/.test(c)) return G.IN;
-  if (/(magazine|reportage)/.test(c)) return G.MAG;
+  if (/(séri|serie|feuilleton|sitcom|saga)/.test(c)) return G.S;
+  if (SPORTS.test(c)) return G.SP;
+  if (/(information|journal|météo|meteo|actualité|politique|débat|interview|\binfos?\b)/.test(c)) return G.IN;
+  if (/(magazine|\bmag\b|reportage|émission|emission)/.test(c)) return G.MAG;
   if (/(spectacle|théâtre|theatre|concert|musique|opéra|opera|ballet|humour|clips)/.test(c)) return G.SH;
-  if (/(divertissement|jeu|variét|téléréalité|telerealite|talk)/.test(c)) return G.DV;
-  if (FILM_GENRES.test(c)) return G.F;   // « Comédie », « Drame », « Thriller »… = films dans le guide
+  if (/(divertissement|jeu|variét|réalité|realite|talk)/.test(c)) return G.DV;
+  if (FILM_GENRES.test(c)) return G.F;
   return G.O;
 }
 const ART = {
@@ -298,12 +300,22 @@ function cleanOldDays(){
 // ---------- Choix des programmes ----------
 function onAir(list, t){ return (list||[]).find(p => p.s<=t && p.e>t); }
 function nextAfter(list, p){ if (!list||!p) return null; const i=list.indexOf(p); return list[i+1]||null; }
-function primeTime(list, dayKey){
+// 1re partie de soirée : chaque chaîne démarre à son heure (20h45, 20h55, 21h10, 21h25…).
+// On prend le premier vrai programme de la soirée : assez long, hors météo, journal, loterie ou interlude.
+const FILLER = /(météo|meteo|journal|tirage|loto|euromillions|keno|programme indéterminé|clips|publicité|trafic)/i;
+const INFO_CH = new Set([13,14,15,16]);
+function primeTime(list, dayKey, num){
   if (!list) return null;
-  const onDay = list.filter(p => keyOf(new Date(p.s*1000))===dayKey);
-  return onDay.find(p => { const h=parisHour(p.s); return h>=20.75 && h<22; })
-      || onDay.find(p => { const a=parisHour(p.s), b=parisHour(p.e); return a<=21.2 && (b>21.2 || b<a); })
-      || null;
+  const day = list.filter(p => keyOf(new Date(p.s*1000))===dayKey);
+  const mins = p => (p.e - p.s)/60;
+  const at = h => day.find(p => { const a=parisHour(p.s), b=parisHour(p.e); return a<=h && (b>h || b<a); });
+  if (INFO_CH.has(num)) return at(21.0) || null;           // chaînes d’info : ce qui passe à 21h
+  const ok = p => !FILLER.test((p.c||"")+" "+p.t);
+  const win = day.filter(p => { const h=parisHour(p.s); return h>=20.5 && h<=22.25; });
+  return win.find(p => ok(p) && ((parisHour(p.s) >= 20.83 && mins(p) >= 40) || mins(p) >= 60))   // programme principal
+      || win.find(p => ok(p) && mins(p) >= 25)                                                      // épisodes courts
+      || (at(21.2) && mins(at(21.2)) >= 40 ? at(21.2) : null)                                       // déjà commencé à 21h
+      || win.slice().sort((a,b)=>mins(b)-mins(a))[0] || at(21.2) || null;
 }
 function passes(num, p){
   const f = state.filter;
@@ -376,7 +388,7 @@ async function renderGrid(){
   let shown = 0;
   for (const [num,name] of CHANNELS){
     const list = data[num];
-    const p = state.view==="now" ? onAir(list,t) : primeTime(list,dayKey);
+    const p = state.view==="now" ? onAir(list,t) : primeTime(list,dayKey,num);
     if (!passes(num,p)) continue;
     shown++;
     const g = p ? genre(p.c) : null, fav = state.favs.has(num), nx = nextAfter(list,p);
@@ -392,7 +404,7 @@ async function renderGrid(){
         p ? el("div",{class:"tags"},
           p.l ? el("span",{class:"tag live"},"En direct") : null,
           p.n ? el("span",{class:"tag new"},"Inédit") : null,
-          el("span",{class:"tag"}, p.c || g),
+          el("span",{class:"tag"}, cleanCat(p.c) || g),
           NO_TRAILER.has(g) ? null : trailer(p.t, kindOf(g), p.y, p.yt)) : null,
         bar,
         nx ? el("p",{class:"extra"}, "Ensuite à "+hm(nx.s)+" : "+nx.t) : null
@@ -484,7 +496,7 @@ async function openSheet(num, dayKey){
         p.i && (isNow || !past) ? thumb(genre(p.c), p.i) : null,
         p.st ? el("p",{class:"d"}, p.st + (p.ep ? " ("+p.ep+")" : "")) : null,
         p.d ? el("p",{class:"d"}, p.d) : null,
-        el("div",{class:"tags"}, isNow?el("span",{class:"tag live"},"En cours"):null, p.n?el("span",{class:"tag new"},"Inédit"):null, p.c?el("span",{class:"tag"},p.c):null,
+        el("div",{class:"tags"}, isNow?el("span",{class:"tag live"},"En cours"):null, p.n?el("span",{class:"tag new"},"Inédit"):null, cleanCat(p.c)?el("span",{class:"tag"},cleanCat(p.c)):null,
           NO_TRAILER.has(genre(p.c)) ? null : trailer(p.t, kindOf(genre(p.c)), p.y, p.yt))));
     if (isNow) current = row;
     sheet.append(row);
