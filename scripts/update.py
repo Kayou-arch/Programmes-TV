@@ -164,9 +164,15 @@ def main():
                     continue
                 done.add(id(item))
                 c = (item.get("c") or "").lower()
-                if not re.search(r"film|série|serie|feuilleton|animation", c) or "documentaire" in c:
+                if re.search(r"documentaire|magazine|téléréalité|jeu|journal|information|jeunesse", c):
                     continue
-                kind = "film" if "film" in c else "série"
+                is_serie = re.search(r"série|serie|feuilleton|saga", c)
+                is_film = re.search(r"film|comédie|comedie|drame|thriller|policier|action|aventure|western|horreur|"
+                                    r"épouvante|fantastique|science-fiction|guerre|romance|péplum|catastrophe|biopic|"
+                                    r"historique|espionnage|suspense|animation", c)
+                if not (is_serie or is_film):
+                    continue
+                kind = "série" if is_serie else "film"
                 vid = trailer(item["t"], item.get("y", ""), kind if not item.get("y") else "")
                 if vid:
                     item["yt"] = vid
