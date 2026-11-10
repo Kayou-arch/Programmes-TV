@@ -171,19 +171,21 @@ const TZ = "Europe/Paris";
 
 // ---------- Genres et vignettes ----------
 const G = {F:"Film",S:"Série",SP:"Sport",DV:"Divertissement",DOC:"Documentaire",MAG:"Magazine",TV:"Téléfilm",SH:"Spectacle",AN:"Jeunesse",IN:"Info",O:"Autre"};
+const FILM_GENRES = /(comédie|comedie|drame|thriller|policier|action|aventure|western|horreur|épouvante|fantastique|science-fiction|guerre|romance|romantique|péplum|catastrophe|biopic|historique|espionnage|suspense|comédie musicale|érotique|arts martiaux|cape et d'épée|road movie)/;
 function genre(cat){
   const c = (cat||"").toLowerCase();
   if (!c) return G.O;
   if (c.includes("téléfilm") || c.includes("telefilm")) return G.TV;
-  if (/(animation|dessin anim|jeunesse|enfant)/.test(c)) return G.AN;
   if (c.includes("documentaire")) return G.DOC;
   if (c.includes("film") || c.includes("cinéma")) return G.F;
-  if (/(série|serie|feuilleton|sitcom)/.test(c)) return G.S;
+  if (/(animation|dessin anim|jeunesse|enfant)/.test(c)) return G.AN;
+  if (/(série|serie|feuilleton|sitcom|saga)/.test(c)) return G.S;
   if (c.includes("sport")) return G.SP;
-  if (/(information|journal|météo|meteo|actualité|politique|débat)/.test(c)) return G.IN;
+  if (/(information|journal|météo|meteo|actualité|politique|débat|interview)/.test(c)) return G.IN;
   if (/(magazine|reportage)/.test(c)) return G.MAG;
-  if (/(spectacle|théâtre|theatre|concert|musique|opéra|opera|ballet|humour)/.test(c)) return G.SH;
+  if (/(spectacle|théâtre|theatre|concert|musique|opéra|opera|ballet|humour|clips)/.test(c)) return G.SH;
   if (/(divertissement|jeu|variét|téléréalité|telerealite|talk)/.test(c)) return G.DV;
+  if (FILM_GENRES.test(c)) return G.F;   // « Comédie », « Drame », « Thriller »… = films dans le guide
   return G.O;
 }
 const ART = {
@@ -309,7 +311,9 @@ function passes(num, p){
   if (f==="fav") return state.favs.has(num);
   if (!p) return false;
   if (f==="new") return !!p.n;
-  return genre(p.c)===f;
+  const g = genre(p.c);
+  if (f===G.F) return g===G.F || g===G.TV;
+  return g===f;
 }
 
 // ---------- Rendu ----------
