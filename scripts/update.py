@@ -121,7 +121,13 @@ def main():
                 s, e = parse_time(el.get("start")), parse_time(el.get("stop"))
                 if s:
                     e = e or s + 1800
-                    cats = [c.text.strip() for c in el.findall("category") if c.text]
+                    cats, inedit = [], False
+                    for c in el.findall("category"):
+                        v = re.sub(r"<[^>]*>", "", c.text or "").strip()
+                        if v.lower() == "inédit":
+                            inedit = True
+                        elif v:
+                            cats.append(v)
                     ep = el.find("episode-num[@system='onscreen']")
                     item = {"s": s, "e": e, "t": text(el, "title") or "Programme",
                             "c": cats[0] if cats else ""}
@@ -130,7 +136,7 @@ def main():
                     d = text(el, "desc")
                     if d: item["d"] = short(d, 320)
                     if ep is not None and ep.text: item["ep"] = ep.text.strip()
-                    if el.find("new") is not None or el.find("premiere") is not None: item["n"] = 1
+                    if inedit or el.find("new") is not None or el.find("premiere") is not None: item["n"] = 1
                     if el.find("live") is not None: item["l"] = 1
                     yd = text(el, "date")
                     if re.match(r"\d{4}", yd): item["y"] = yd[:4]
@@ -166,10 +172,10 @@ def main():
                 c = (item.get("c") or "").lower()
                 if re.search(r"documentaire|magazine|téléréalité|jeu|journal|information|jeunesse", c):
                     continue
-                is_serie = re.search(r"série|serie|feuilleton|saga", c)
+                is_serie = re.search(r"séri|serie|feuilleton|saga", c)
                 is_film = re.search(r"film|comédie|comedie|drame|thriller|policier|action|aventure|western|horreur|"
                                     r"épouvante|fantastique|science-fiction|guerre|romance|péplum|catastrophe|biopic|"
-                                    r"historique|espionnage|suspense|animation", c)
+                                    r"historique|espionnage|suspense|animation|dramatique", c)
                 if not (is_serie or is_film):
                     continue
                 kind = "série" if is_serie else "film"
