@@ -10,6 +10,8 @@ Usage :
 import argparse, datetime as dt, gzip, io, json, os, re, sys, unicodedata, urllib.request, zipfile
 from xml.etree.ElementTree import iterparse
 from zoneinfo import ZoneInfo
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from common import CACHE, trailer, yt_thumb
 
 PARIS = ZoneInfo("Europe/Paris")
 SOURCES = [
@@ -130,6 +132,8 @@ def main():
                     if ep is not None and ep.text: item["ep"] = ep.text.strip()
                     if el.find("new") is not None or el.find("premiere") is not None: item["n"] = 1
                     if el.find("live") is not None: item["l"] = 1
+                    yd = text(el, "date")
+                    if re.match(r"\d{4}", yd): item["y"] = yd[:4]
                     ic = el.find("icon")
                     if ic is not None and ic.get("src", "").startswith(("http://", "https://")):
                         item["i"] = "https://" + ic.get("src").split("://", 1)[1]
@@ -150,6 +154,25 @@ def main():
                     per_day.setdefault(day.isoformat(), {}).setdefault(str(num), []).append(item)
                 day += dt.timedelta(days=1)
         found.add(num)
+
+    # Bandes-annonces (titre + année) pour films, téléfilms et séries ; miniature YouTube si pas d’image
+    done = set()
+    for day in sorted(per_day):
+        for lst in per_day[day].values():
+            for item in lst:
+                if id(item) in done:
+                    continue
+                done.add(id(item))
+                c = (item.get("c") or "").lower()
+                if not re.search(r"film|série|serie|feuilleton|animation", c) or "documentaire" in c:
+                    continue
+                kind = "film" if "film" in c else "série"
+                vid = trailer(item["t"], item.get("y", ""), kind if not item.get("y") else "")
+                if vid:
+                    item["yt"] = vid
+                    if not item.get("i"):
+                        item["i"] = yt_thumb(vid)
+    CACHE.save()
 
     if not per_day:
         raise SystemExit("Aucun programme trouvé : le format du guide a peut-être changé.")
