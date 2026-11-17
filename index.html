@@ -126,6 +126,10 @@ ul.grid{list-style:none;margin:0;padding:0 8px 8px}
 .row.st.open .d{-webkit-line-clamp:unset;display:block}
 .note{list-style:none;padding:14px 12px;color:var(--muted);font-size:.85rem;line-height:1.45}
 .note b{color:var(--ink)}
+.row.st{grid-template-columns:40px 64px 1fr auto}
+.where{margin:7px 0 0;font-size:.82rem;color:var(--muted);display:flex;flex-wrap:wrap;gap:5px;align-items:center}
+.where a{font-weight:700;color:var(--ink);text-decoration:none;border:1px solid var(--line);border-radius:6px;padding:1px 7px;background:var(--bg)}
+.tag.plat-tag{color:#fff;background:var(--pc,#555)}
 footer{padding:18px 20px 32px;color:var(--muted);font-size:.8rem;text-align:center}
 @media (prefers-reduced-motion: reduce){.sheet{transition:none}}
 </style>
@@ -256,7 +260,7 @@ function el(tag, attrs={}, ...kids){
 
 // ---------- État ----------
 const FILTERS = [["all","Tout"],["fav","Mes chaînes ★"],[G.F,"Films"],[G.S,"Séries"],[G.SP,"Sport"],[G.DV,"Divertissement"],[G.DOC,"Documentaires"],[G.MAG,"Magazines"],[G.IN,"Info"],[G.AN,"Jeunesse"],["new","Inédits"]];
-const state = { plat:store.get("tnt-plat","netflix"), stream:null, sub:"series", view:"now", day:keyOf(new Date()), filter:"all", favs:new Set(store.get("tnt-favs",[])), index:null, cache:{}, offline:false };
+const state = { where:{}, mylist:store.get("tnt-mylist",{}), plat:store.get("tnt-plat","netflix"), stream:null, sub:"series", view:"now", day:keyOf(new Date()), filter:"all", favs:new Set(store.get("tnt-favs",[])), index:null, cache:{}, offline:false };
 
 async function getJSON(url){
   const r = await fetch(url + (url.includes("?")?"&":"?") + "v=" + Date.now(), {cache:"no-store"});
@@ -285,6 +289,19 @@ async function loadDay(k){
     if (d) state.cache[k] = d;
     return d;
   }
+}
+async function loadWhere(){
+  try{ const w = await getJSON("data/where.json"); state.where = w.titles || {}; store.set("tnt-where", state.where); }
+  catch(e){ state.where = store.get("tnt-where", {}); }
+}
+const wkey = s => (s||"").normalize("NFKD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
+function whereLine(title, g){
+  if (![G.F,G.TV,G.S,G.AN].includes(g)) return null;
+  const offers = state.where[wkey(title)];
+  if (!offers || !offers.length) return null;
+  return el("div",{class:"where"}, "Aussi sur :",
+    ...offers.map(o => o.u ? el("a",{href:o.u,target:"_blank",rel:"noopener",onclick:e=>e.stopPropagation()}, o.n + (o.m==="gratuit" ? " (gratuit)" : ""))
+                           : el("span",{}, o.n)));
 }
 async function loadStream(){
   try{ state.stream = await getJSON("data/streaming.json"); store.set("tnt-stream", state.stream); }
@@ -342,7 +359,7 @@ function renderDays(){
 const PLATS = [["netflix","Netflix","#E50914"],["prime","Prime Video","#1A98FF"],["disney","Disney+","#113CCF"]];
 function renderPlats(){
   const box = document.getElementById("plats"); box.textContent = "";
-  box.hidden = state.view!=="stream";
+  box.hidden = state.view!=="stream" || state.sub==="mine";
   if (box.hidden) return;
   for (const [id,label,color] of PLATS){
     const b = el("button",{class:"plat",type:"button","aria-pressed":String(id===state.plat),onclick:()=>{ state.plat=id; store.set("tnt-plat",id); render(); }},label);
@@ -350,7 +367,7 @@ function renderPlats(){
     box.append(b);
   }
 }
-const SUBS = [["series","Top 10 séries"],["films","Top 10 films"],["newSeries","Nouvelles séries"],["newFilms","Nouveaux films"]];
+const SUBS = [["series","Top 10 séries"],["films","Top 10 films"],["newSeries","Nouvelles séries"],["newFilms","Nouveaux films"],["soon","Bientôt"],["mine","Ma liste ★"]];
 function renderFilters(){
   const box = document.getElementById("filters"); box.textContent="";
   if (state.view==="stream"){
@@ -394,7 +411,7 @@ async function renderGrid(){
     const g = p ? genre(p.c) : null, fav = state.favs.has(num), nx = nextAfter(list,p);
     let bar = null;
     if (p && state.view==="now"){ const pct = Math.min(100,Math.max(0,(t-p.s)/(p.e-p.s)*100)); bar = el("div",{class:"bar"}, el("i",{style:"width:"+pct.toFixed(1)+"%"})); }
-    grid.append(el("li",{class:"row"+(p?"":" quiet"),onclick:e=>{ if(!e.target.closest(".star,.yt")) openSheet(num,dayKey); }},
+    grid.append(el("li",{class:"row"+(p?"":" quiet"),onclick:e=>{ if(!e.target.closest(".star,.yt,.where a")) openSheet(num,dayKey); }},
       el("div",{class:"n","aria-hidden":"true"},String(num)),
       thumb(g, p && p.i),
       el("div",{class:"body"},
@@ -406,6 +423,7 @@ async function renderGrid(){
           p.n ? el("span",{class:"tag new"},"Inédit") : null,
           el("span",{class:"tag"}, cleanCat(p.c) || g),
           NO_TRAILER.has(g) ? null : trailer(p.t, kindOf(g), p.y, p.yt)) : null,
+        p ? whereLine(p.t, g) : null,
         bar,
         nx ? el("p",{class:"extra"}, "Ensuite à "+hm(nx.s)+" : "+nx.t) : null
       ),
@@ -432,43 +450,89 @@ function platformData(){
   // ancien format (version 1.1) : Netflix uniquement
   return state.plat==="netflix" ? {name:"Netflix", official:true, top:S.top10||{}, news:S.news||{}} : null;
 }
+const fmtDate = d => new Date(d+"T12:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"});
+function daysUntil(d){ return Math.round((new Date(d+"T12:00:00") - new Date(keyOf(new Date())+"T12:00:00"))/864e5); }
+function listId(it, kind, plat){ return plat + "|" + kind + "|" + wkey(it.t || it.t_fr); }
+function toggleMine(it, kind, plat){
+  const id = listId(it, kind, plat);
+  if (state.mylist[id]) delete state.mylist[id];
+  else state.mylist[id] = {t:it.t, t_fr:it.t_fr, p:it.p, o:it.o, y:it.y, yt:it.yt, date:it.date, season:it.season, note:it.note, kind, plat, added:Date.now()};
+  store.set("tnt-mylist", state.mylist);
+  renderStream();
+}
+function streamRow(it, i, o){
+  const kind = o.kind, isFilm = kind==="film", plat = o.plat, name = it.t_fr || it.t;
+  const saved = !!state.mylist[listId(it, kind, plat)];
+  const pinfo = PLATS.find(x=>x[0]===plat);
+  const row = el("li",{class:"row st",onclick:e=>{ if(!e.target.closest(".yt,.star")) row.classList.toggle("open"); }},
+    el("div",{class:"n","aria-hidden":"true"}, String(o.rank || i+1)),
+    (()=>{ const t = thumb(isFilm ? G.F : G.S, it.p); t.classList.add("poster"); return t; })(),
+    el("div",{class:"body"},
+      el("div",{class:"ch"}, el("span",{}, o.meta || ""), it.y ? el("time",{}, it.y) : null),
+      el("p",{class:"t"}, name),
+      it.season ? el("p",{class:"d"}, it.season) : null,
+      it.o ? el("p",{class:"d"}, it.o) : null,
+      el("div",{class:"tags"},
+        o.showPlat && pinfo ? (()=>{ const t = el("span",{class:"tag plat-tag"}, pinfo[1]); t.style.setProperty("--pc", pinfo[2]); return t; })() : null,
+        o.isNew ? el("span",{class:"tag new"},"Nouveau") : null,
+        el("span",{class:"tag"}, isFilm ? "Film" : "Série"),
+        it.note ? el("span",{class:"tag"}, "★ " + String(it.note).replace(".",",")) : null,
+        trailer(name, isFilm ? "film" : "serie", isFilm ? it.y : "", it.yt))),
+    el("button",{class:"star",type:"button","aria-pressed":String(saved),
+      "aria-label":(saved?"Retirer ":"Ajouter ")+name+(saved?" de ma liste":" à ma liste"),
+      onclick:()=>toggleMine(it, kind, plat)}, saved?"★":"☆"));
+  return row;
+}
 function renderStream(){
   const grid = document.getElementById("grid"), title = document.getElementById("dayTitle"), sub = document.getElementById("daySub");
   grid.textContent = ""; sub.className = "";
-  const P = platformData(), pname = PLATS.find(x=>x[0]===state.plat)[1];
+  const pname = PLATS.find(x=>x[0]===state.plat)[1];
   const label = SUBS.find(x=>x[0]===state.sub)[1];
+
+  if (state.sub==="mine"){
+    title.textContent = "Ma liste";
+    const items = Object.values(state.mylist).sort((a,b)=>b.added-a.added);
+    sub.textContent = items.length ? items.length + " titre" + (items.length>1?"s":"") + " à regarder, toutes plateformes" : "";
+    items.forEach((it,i) => grid.append(streamRow(it, i, {kind:it.kind, plat:it.plat, showPlat:true,
+      meta: it.date ? (daysUntil(it.date)>0 ? "Sortie le " + fmtDate(it.date) : "Disponible") : "Disponible"})));
+    if (!items.length) grid.append(el("li",{class:"empty"}, el("p",{},"Touchez l’étoile d’un film ou d’une série pour l’ajouter à votre liste.")));
+    return;
+  }
+
   title.textContent = label + " " + pname;
+  const P = platformData();
   if (!P){
     sub.textContent = "Données pas encore disponibles pour " + pname + ".";
     grid.append(el("li",{class:"note"},"Lance la mise à jour dans l’onglet Actions de GitHub, puis rouvre l’appli."));
     return;
   }
+
+  if (state.sub==="soon"){
+    title.textContent = "Bientôt sur " + pname;
+    const items = (P.soon || []).filter(it => !it.date || daysUntil(it.date) >= 0);
+    sub.textContent = "Films, séries et nouvelles saisons annoncés";
+    items.forEach((it,i) => {
+      const n = it.date ? daysUntil(it.date) : null;
+      const when = n===null ? "Date à venir" : n===0 ? "Aujourd’hui" : n===1 ? "Demain" : "Dans " + n + " jours, le " + fmtDate(it.date).replace(/ \d{4}$/,"");
+      grid.append(streamRow(it, i, {kind: it.k || "film", plat: state.plat, meta: when}));
+    });
+    if (!items.length) grid.append(el("li",{class:"empty"}, el("p",{},"Aucune sortie annoncée pour le moment.")));
+    grid.append(el("li",{class:"note"},"Sorties annoncées d’après TVmaze (séries) et Wikidata (films). Les dates peuvent changer."));
+    return;
+  }
+
   const isTop = state.sub==="series" || state.sub==="films";
   const isFilm = state.sub==="films" || state.sub==="newFilms";
   const items = isTop ? (P.top||{})[state.sub] || [] : (P.news||{})[isFilm ? "films" : "series"] || [];
   sub.textContent = isTop
     ? (P.official && state.stream.week ? "En France, " + weekLabel(state.stream.week).toLowerCase() + ", d’après Netflix" : "Les plus populaires en France en ce moment")
     : (isFilm ? "Films récents disponibles sur " + pname : "Nouvelles séries et nouvelles saisons sur " + pname);
-  const g = isFilm ? G.F : G.S;
   items.forEach((it, i) => {
     const meta = isTop
       ? (P.official ? (it.weeks<=1 ? "Nouveau dans le top 10" : it.weeks + " semaines dans le top 10") : (it.y ? "Sorti en " + it.y : ""))
-      : (it.date ? "Sorti le " + new Date(it.date+"T12:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"}) : "");
-    const name = it.t_fr || it.t;
-    const row = el("li",{class:"row st",onclick:e=>{ if(!e.target.closest(".yt")) row.classList.toggle("open"); }},
-      el("div",{class:"n","aria-hidden":"true"}, String(it.rank || i+1)),
-      (()=>{ const t = thumb(g, it.p); t.classList.add("poster"); return t; })(),
-      el("div",{class:"body"},
-        el("div",{class:"ch"}, el("span",{}, meta), it.y ? el("time",{}, it.y) : null),
-        el("p",{class:"t"}, name),
-        it.season ? el("p",{class:"d"}, it.season) : null,
-        it.o ? el("p",{class:"d"}, it.o) : null,
-        el("div",{class:"tags"},
-          isTop && P.official && it.weeks<=1 ? el("span",{class:"tag new"},"Nouveau") : null,
-          el("span",{class:"tag"}, isFilm ? "Film" : "Série"),
-          it.note ? el("span",{class:"tag"}, "★ " + String(it.note).replace(".",",")) : null,
-          trailer(name, isFilm ? "film" : "serie", isFilm ? it.y : "", it.yt))));
-    grid.append(row);
+      : (it.date ? "Sorti le " + fmtDate(it.date) : "");
+    grid.append(streamRow(it, i, {kind: isFilm ? "film" : "serie", plat: state.plat, rank: it.rank, meta,
+      isNew: isTop && P.official && it.weeks<=1}));
   });
   if (!items.length) grid.append(el("li",{class:"empty"}, el("p",{},"Rien à afficher pour le moment.")));
   grid.append(el("li",{class:"note"}, (P.official ? "Top 10 : chiffres officiels publiés chaque semaine par Netflix. " : "Classement : popularité JustWatch en France. ")
@@ -497,7 +561,8 @@ async function openSheet(num, dayKey){
         p.st ? el("p",{class:"d"}, p.st + (p.ep ? " ("+p.ep+")" : "")) : null,
         p.d ? el("p",{class:"d"}, p.d) : null,
         el("div",{class:"tags"}, isNow?el("span",{class:"tag live"},"En cours"):null, p.n?el("span",{class:"tag new"},"Inédit"):null, cleanCat(p.c)?el("span",{class:"tag"},cleanCat(p.c)):null,
-          NO_TRAILER.has(genre(p.c)) ? null : trailer(p.t, kindOf(genre(p.c)), p.y, p.yt))));
+          NO_TRAILER.has(genre(p.c)) ? null : trailer(p.t, kindOf(genre(p.c)), p.y, p.yt)),
+        whereLine(p.t, genre(p.c))));
     if (isNow) current = row;
     sheet.append(row);
   }
@@ -549,7 +614,7 @@ applyTheme();
 // ---------- Démarrage : recharge les données à chaque ouverture ----------
 async function start(){
   state.offline = false; state.cache = {};
-  await Promise.all([loadIndex(), loadStream()]); cleanOldDays();
+  await Promise.all([loadIndex(), loadStream(), loadWhere()]); cleanOldDays();
   const today = keyOf(new Date());
   if (!state.index?.days?.includes(state.day) || state.day<today) state.day = today;
   await render();
