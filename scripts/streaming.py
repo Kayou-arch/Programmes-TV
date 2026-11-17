@@ -14,7 +14,8 @@ Avec le secret facultatif TMDB_KEY, TMDB sert de source supplémentaire.
 import argparse, csv, datetime as dt, io, json, os, re, sys, time, urllib.parse
 from zoneinfo import ZoneInfo
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common import (CACHE, get, get_json, post_json, safe, norm, same_title, short, strip_html,
+import glob
+from common import (CACHE, get, get_json, post_json, safe, norm, wkey, same_title, short, strip_html,
                     to_french, trailer, yt_thumb)
 
 PARIS = ZoneInfo("Europe/Paris")
@@ -24,9 +25,12 @@ COUNTRY = "FR"
 TODAY = dt.date.today()
 YEAR = TODAY.year
 PLATFORMS = {
-    "netflix": {"name": "Netflix", "jw": ["nfx"], "tvmaze": ["netflix"], "tmdb": 8},
-    "prime":   {"name": "Prime Video", "jw": ["prv"], "tvmaze": ["prime video", "amazon"], "tmdb": 119},
-    "disney":  {"name": "Disney+", "jw": ["dnp"], "tvmaze": ["disney+", "disney plus"], "tmdb": 337},
+    "netflix": {"name": "Netflix", "jw": ["nfx"], "tvmaze": ["netflix"], "tmdb": 8,
+                "wd": ["Netflix"]},
+    "prime":   {"name": "Prime Video", "jw": ["prv"], "tvmaze": ["prime video", "amazon"], "tmdb": 119,
+                "wd": ["Prime Video", "Amazon Prime Video", "Amazon MGM Studios"]},
+    "disney":  {"name": "Disney+", "jw": ["dnp"], "tvmaze": ["disney+", "disney plus"], "tmdb": 337,
+                "wd": ["Disney+"]},
 }
 
 # ================================================================ Netflix Top 10 officiel
@@ -118,6 +122,88 @@ def jw_titles(filt, first=40):
     time.sleep(0.3)
     return out
 
+JW_WHERE = """
+query Where($country: Country!, $language: Language!, $first: Int!, $titleFilter: TitleFilter, $offerFilter: OfferFilter!) {
+  popularTitles(country: $country, filter: $titleFilter, first: $first, sortBy: POPULAR, sortRandomSeed: 0) {
+    edges { node {
+      objectType
+      content(country: $country, language: $language) { title originalTitle originalReleaseYear }
+      offers(country: $country, platform: WEB, filter: $offerFilter) {
+        monetizationType standardWebURL package { clearName technicalName }
+      }
+    } }
+  }
+}"""
+MONET = {"FLATRATE": "abo", "FREE": "gratuit", "ADS": "gratuit"}
+
+def jw_where(title, kind, year=None):
+    """Plateformes (abonnement ou gratuites) où le titre est disponible en France."""
+    k = wkey(title) + "|" + kind
+    hit = CACHE.d["where"].get(k)
+    if hit and hit.get("d", "") >= (TODAY - dt.timedelta(days=3)).isoformat():
+        return hit["o"]
+    payload = {"query": JW_WHERE, "variables": {
+        "country": COUNTRY, "language": "fr", "first": 5, "offerFilter": {"bestOnly": True},
+        "titleFilter": {"searchQuery": title, "objectTypes": ["MOVIE" if kind == "film" else "SHOW"],
+                        "includeTitlesWithoutUrl": True}}}
+    data = post_json(JW_URL, payload, {"Origin": "https://www.justwatch.com"}, timeout=40)
+    time.sleep(0.3)
+    if data.get("errors"):
+        raise RuntimeError(str(data["errors"])[:200])
+    offers = []
+    for e in (data.get("data") or {}).get("popularTitles", {}).get("edges", []):
+        n = e.get("node") or {}
+        c = n.get("content") or {}
+        if not (same_title(c.get("title", ""), title) or same_title(c.get("originalTitle") or "", title)):
+            continue
+        if year and c.get("originalReleaseYear") and abs(int(c["originalReleaseYear"]) - int(year)) > 1:
+            continue
+        seen = set()
+        for o in n.get("offers") or []:
+            m = MONET.get(o.get("monetizationType"))
+            name = ((o.get("package") or {}).get("clearName") or "").strip()
+            if m and name and name not in seen:
+                seen.add(name)
+                offers.append({"n": name, "u": o.get("standardWebURL") or "", "m": m})
+        break
+    offers = offers[:5]
+    CACHE.d["where"][k] = {"d": TODAY.isoformat(), "o": offers}
+    return offers
+
+def where_for_tv(max_lookups=220):
+    """Pour les films et séries diffusés à la TV : où les regarder aussi en streaming."""
+    titles = {}
+    for f in sorted(glob.glob(os.path.join(ROOT, "data", "20??-??-??.json"))):
+        try:
+            day = json.load(open(f, encoding="utf-8"))
+        except Exception:
+            continue
+        for progs in day.values():
+            for p in progs:
+                c = (p.get("c") or "").lower()
+                if re.search(r"documentaire|magazine|réalité|jeu|journal|information|jeunesse|sport", c):
+                    continue
+                if re.search(r"séri|serie|feuilleton|saga", c):
+                    kind = "serie"
+                elif re.search(r"film|comédie|comedie|drame|dramatique|thriller|policier|action|aventure|western|"
+                               r"horreur|fantastique|science-fiction|guerre|romance|animation", c):
+                    kind = "film"
+                else:
+                    continue
+                titles.setdefault(wkey(p["t"]), (p["t"], kind, p.get("y")))
+    out, n = {}, 0
+    for key, (title, kind, year) in titles.items():
+        cached = CACHE.d["where"].get(wkey(title) + "|" + kind)
+        if not cached or cached.get("d", "") < (TODAY - dt.timedelta(days=3)).isoformat():
+            if n >= max_lookups:
+                continue
+            n += 1
+        offers = safe(jw_where, title, kind, year, default=None)
+        if offers:
+            out[key] = offers
+    print(f"Où regarder : {len(out)} titres TV disponibles aussi en streaming ({n} nouvelles recherches).")
+    return out
+
 def jw_find(title, kind, packages=None, year=None):
     filt = {"searchQuery": title, "objectTypes": ["MOVIE" if kind == "film" else "SHOW"], "includeTitlesWithoutUrl": True}
     if packages:
@@ -150,10 +236,12 @@ def tvmaze_lookup(name):
     finally:
         time.sleep(0.6)
 
-def tvmaze_new_series(days=45):
-    by_platform = {k: [] for k in PLATFORMS}
+def tvmaze_series(days_back=45, days_ahead=30):
+    """Premiers épisodes (nouvelle série ou saison) : mis en ligne récemment et à venir, par plateforme."""
+    past = {k: [] for k in PLATFORMS}
+    soon = {k: [] for k in PLATFORMS}
     seen = set()
-    for i in range(days):
+    for i in range(-days_ahead, days_back):
         day = TODAY - dt.timedelta(days=i)
         eps = safe(get_json, f"https://api.tvmaze.com/schedule/web?date={day.isoformat()}", default=[], timeout=30) or []
         for ep in eps:
@@ -167,26 +255,30 @@ def tvmaze_new_series(days=45):
                 continue
             seen.add(key)
             s = ep.get("season") or 1
+            date = ep.get("airdate") or day.isoformat()
             item = {"t": show.get("name", ""), "season": f"Saison {s}" if s > 1 else "Nouvelle série",
-                    "date": ep.get("airdate") or day.isoformat(), "y": (ep.get("airdate") or day.isoformat())[:4],
-                    "kind": "serie", "lang": (show.get("language") or "")}
+                    "date": date, "y": date[:4], "kind": "serie"}
             item.update({k: v for k, v in tvmaze_card(show).items() if v and k != "y"})
-            by_platform[plat].append(item)
+            (soon if date > TODAY.isoformat() else past)[plat].append(item)
         time.sleep(0.6)
-    return by_platform
+    return past, soon
 
 # ================================================================ Wikidata (films Netflix récents)
 SPARQL = """
 SELECT ?frLabel ?enLabel (MIN(?d) AS ?date) WHERE {
-  ?film wdt:P750 wd:Q907311 ; wdt:P577 ?d .
+  VALUES ?name { %s }
+  ?dist rdfs:label ?name .
+  ?film wdt:P750 ?dist ; wdt:P577 ?d .
   FILTER NOT EXISTS { ?film wdt:P31/wdt:P279* wd:Q5398426 }
   FILTER(?d >= "%s"^^xsd:dateTime && ?d <= "%s"^^xsd:dateTime)
   OPTIONAL { ?film rdfs:label ?frLabel FILTER(LANG(?frLabel) = "fr") }
   OPTIONAL { ?film rdfs:label ?enLabel FILTER(LANG(?enLabel) = "en") }
-} GROUP BY ?frLabel ?enLabel ORDER BY DESC(?date) LIMIT 60"""
+} GROUP BY ?frLabel ?enLabel ORDER BY ?date LIMIT 80"""
 
-def wikidata_netflix_films(days=75):
-    q = SPARQL % ((TODAY - dt.timedelta(days=days)).isoformat() + "T00:00:00Z", TODAY.isoformat() + "T23:59:59Z")
+def wikidata_films(names, start, end):
+    """Films distribués par la plateforme (nom anglais sur Wikidata) sortis entre deux dates."""
+    values = " ".join(f'"{n}"@en' for n in names)
+    q = SPARQL % (values, start.isoformat() + "T00:00:00Z", end.isoformat() + "T23:59:59Z")
     data = get_json("https://query.wikidata.org/sparql?" + urllib.parse.urlencode({"query": q, "format": "json"}),
                     {"Accept": "application/sparql-results+json"}, timeout=90)
     out = []
@@ -195,7 +287,11 @@ def wikidata_netflix_films(days=75):
         fr = (b.get("frLabel") or {}).get("value") or en
         if fr and not re.match(r"^Q\d+$", fr):
             out.append({"t": en or fr, "t_fr": fr, "date": b["date"]["value"][:10], "y": b["date"]["value"][:4], "kind": "film"})
+    time.sleep(1)
     return out
+
+def wikidata_netflix_films(days=75):
+    return wikidata_films(PLATFORMS["netflix"]["wd"], TODAY - dt.timedelta(days=days), TODAY)
 
 # ================================================================ IMDb (affiches de secours)
 def imdb_poster(title, year=None, kind="film"):
@@ -282,10 +378,11 @@ def dedupe(items):
     return out
 
 # ================================================================ construction par plateforme
-def build(key, cfg, tmdb, tvm_new, nf_top=None, nf_recent=None):
+def build(key, cfg, tmdb, tvm_new, nf_top=None, nf_recent=None, tvm_soon=None):
     print(f"— {cfg['name']}")
     pk = cfg["jw"]
-    plat = {"name": cfg["name"], "official": False, "top": {"films": [], "series": []}, "news": {"films": [], "series": []}}
+    plat = {"name": cfg["name"], "official": False, "top": {"films": [], "series": []},
+            "news": {"films": [], "series": []}, "soon": []}
 
     # Top 10
     if nf_top:
@@ -309,7 +406,7 @@ def build(key, cfg, tmdb, tvm_new, nf_top=None, nf_recent=None):
     if key == "netflix":
         for src in (nf_recent or {}).items():
             films.append({"t": src[0], "date": src[1], "y": src[1][:4], "kind": "film"})
-        films += safe(wikidata_netflix_films, default=[]) or []
+    films += safe(wikidata_films, cfg["wd"], TODAY - dt.timedelta(days=75), TODAY, default=[]) or []
     if len(films) < 12:  # complète avec les films récents les plus populaires
         for it in recent:
             if it.get("y") and int(it["y"]) >= YEAR - 1:
@@ -330,9 +427,22 @@ def build(key, cfg, tmdb, tvm_new, nf_top=None, nf_recent=None):
         enrich(it, "serie", pk, tmdb)
     series.sort(key=lambda x: x.get("date") or x.get("y") or "", reverse=True)
     plat["news"]["series"] = series
+
+    # Bientôt : films (Wikidata) et séries / saisons (TVmaze) annoncés dans les 45 prochains jours
+    soon = [dict(it, kind="film") for it in (safe(wikidata_films, cfg["wd"], TODAY + dt.timedelta(days=1),
+                                                  TODAY + dt.timedelta(days=45), default=[]) or [])]
+    soon += [dict(it) for it in (tvm_soon or {}).get(key, [])]
+    soon = dedupe(soon)
+    soon.sort(key=lambda x: x.get("date") or "")
+    soon = soon[:30]
+    for it in soon:
+        kind = it.get("kind", "film")
+        enrich(it, kind, None, tmdb)
+        it["k"] = kind
+    plat["soon"] = soon
     n = sum(1 for g in (plat["top"], plat["news"]) for c in g.values() for it in c)
     ni = sum(1 for g in (plat["top"], plat["news"]) for c in g.values() for it in c if it.get("p"))
-    print(f"  {n} titres, {ni} avec affiche, {len(films)} nouveaux films, {len(series)} nouvelles séries")
+    print(f"  {n} titres, {ni} avec affiche, {len(films)} nouveaux films, {len(series)} nouvelles séries, {len(soon)} à venir")
     return plat
 
 def main():
@@ -347,19 +457,23 @@ def main():
     week, nf_top, nf_recent = (safe(netflix_top10, tsv, default=None) if tsv else None) or (None, None, {})
     if not args.tsv:
         nf_recent.update(safe(netflix_global_recent, default={}) or {})
-    tvm_new = safe(tvmaze_new_series, default={}) or {}
+    tvm_new, tvm_soon = safe(tvmaze_series, default=({}, {})) or ({}, {})
 
     result = {"updated": dt.datetime.now(PARIS).isoformat(timespec="minutes"), "week": week, "platforms": {}}
     for k, cfg in PLATFORMS.items():
         if args.only and k != args.only:
             continue
         result["platforms"][k] = safe(build, k, cfg, tmdb, tvm_new,
-                                      nf_top if k == "netflix" else None, nf_recent if k == "netflix" else None,
+                                      nf_top if k == "netflix" else None, nf_recent if k == "netflix" else None, tvm_soon,
                                       default={"name": cfg["name"], "official": False,
                                                "top": {"films": [], "series": []}, "news": {"films": [], "series": []}})
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w", encoding="utf-8") as fh:
         json.dump(result, fh, ensure_ascii=False, separators=(",", ":"))
+    CACHE.save()
+    where = safe(where_for_tv, default={}) or {}
+    with open(os.path.join(ROOT, "data", "where.json"), "w", encoding="utf-8") as fh:
+        json.dump({"updated": result["updated"], "titles": where}, fh, ensure_ascii=False, separators=(",", ":"))
     CACHE.save()
     print("Streaming terminé.")
 

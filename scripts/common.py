@@ -31,6 +31,11 @@ def norm(s):
     s = unicodedata.normalize("NFKD", s or "").encode("ascii", "ignore").decode().lower()
     return re.sub(r"[^a-z0-9]+", " ", s).strip()
 
+def wkey(s):
+    """Clé de titre identique à celle calculée par l’appli (JavaScript)."""
+    s = "".join(ch for ch in unicodedata.normalize("NFKD", s or "") if not unicodedata.combining(ch))
+    return re.sub(r"[^a-z0-9]+", " ", s.lower()).strip()
+
 def same_title(a, b):
     a, b = norm(a), norm(b)
     return bool(a) and bool(b) and (a == b or (len(a) > 3 and a in b) or (len(b) > 3 and b in a))
@@ -63,7 +68,7 @@ class Cache:
             self.d = json.load(open(CACHE_FILE, encoding="utf-8"))
         except Exception:
             self.d = {}
-        for k in ("yt", "tr", "img"):
+        for k in ("yt", "tr", "img", "where"):
             self.d.setdefault(k, {})
         self.new_lookups = 0
     def save(self, limit=4000):
