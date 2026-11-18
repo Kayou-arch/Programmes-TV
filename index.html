@@ -542,6 +542,7 @@ function renderStream(){
       add(P.news?.films, "film", "Nouveauté"); add(P.news?.series, "serie", "Nouveauté");
       add(P.top?.films, "film", "Top 10"); add(P.top?.series, "serie", "Top 10");
       add(P.anime, null, "Populaire");
+      add(P.popular?.films, "film", "Top 30"); add(P.popular?.series, "serie", "Top 30");
       add(P.soon, null, "Bientôt");
     }
     items.sort((a,b) => b.score-a.score || (b.it.date||b.it.y||"").localeCompare(a.it.date||a.it.y||""));

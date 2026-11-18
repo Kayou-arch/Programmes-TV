@@ -452,7 +452,7 @@ def build(key, cfg, tmdb, tvm_new, nf_top=None, nf_recent=None, tvm_soon=None):
 
     # Animés / mangas populaires sur la plateforme (animation japonaise)
     anime = safe(jw_titles, {"packages": pk, "genres": ["ani"], "productionCountries": ["JP"],
-                             "objectTypes": ["SHOW", "MOVIE"], "includeTitlesWithoutUrl": True}, 20, default=[]) or []
+                             "objectTypes": ["SHOW", "MOVIE"], "includeTitlesWithoutUrl": True}, 30, default=[]) or []
     anime = dedupe([dict(it, t=it.get("t_orig") or it["t_fr"]) for it in anime])
     for it in anime:
         it["k"] = it.get("kind", "serie")
@@ -460,6 +460,15 @@ def build(key, cfg, tmdb, tvm_new, nf_top=None, nf_recent=None, tvm_soon=None):
             it["g"] = ["anm"] + (it.get("g") or [])
         enrich(it, it["k"], pk, tmdb)
     plat["anime"] = anime
+
+    # Top 30 populaire (films et séries) : réserve de titres pour les Favoris
+    plat["popular"] = {"films": [], "series": []}
+    for kind, cat in (("film", "films"), ("serie", "series")):
+        pop = safe(jw_popular, pk, kind, 30, default=[]) or []
+        pop = dedupe([dict(it, t=it.get("t_orig") or it["t_fr"], rank=i + 1) for i, it in enumerate(pop)])
+        for it in pop:
+            enrich(it, kind, pk, tmdb)
+        plat["popular"][cat] = pop
 
     # Bientôt : films (Wikidata) et séries / saisons (TVmaze) annoncés dans les 45 prochains jours
     soon = [dict(it, kind="film") for it in (safe(wikidata_films, cfg["wd"], TODAY + dt.timedelta(days=1),
