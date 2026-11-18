@@ -133,6 +133,7 @@ ul.grid{list-style:none;margin:0;padding:0 8px 8px}
 .sep{list-style:none;margin:14px 8px 2px;font-size:.78rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
 .picker{list-style:none;background:var(--surface);border-radius:14px;padding:14px;margin:6px 0}
 .picker .d{-webkit-line-clamp:unset;display:block}
+.favchips{list-style:none;margin:4px 0 8px}
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}
 .picker .ok{border:0;background:var(--signal);color:var(--signal-ink);font-weight:800;border-radius:999px;padding:9px 20px}
 footer{padding:18px 20px 32px;color:var(--muted);font-size:.8rem;text-align:center}
@@ -265,7 +266,7 @@ function el(tag, attrs={}, ...kids){
 
 // ---------- État ----------
 const FILTERS = [["all","Tout"],["fav","Mes chaînes ★"],[G.F,"Films"],[G.S,"Séries"],[G.SP,"Sport"],[G.DV,"Divertissement"],[G.DOC,"Documentaires"],[G.MAG,"Magazines"],[G.IN,"Info"],[G.AN,"Jeunesse"],["new","Inédits"]];
-const state = { genres:new Set(store.get("tnt-genres",[])), where:{}, mylist:store.get("tnt-mylist",{}), plat:store.get("tnt-plat","netflix"), stream:null, sub:"series", view:"now", day:keyOf(new Date()), filter:"all", favs:new Set(store.get("tnt-favs",[])), index:null, cache:{}, offline:false };
+const state = { favGenre:"all", genres:new Set(store.get("tnt-genres",[])), where:{}, mylist:store.get("tnt-mylist",{}), plat:store.get("tnt-plat","netflix"), stream:null, sub:"series", view:"now", day:keyOf(new Date()), filter:"all", favs:new Set(store.get("tnt-favs",[])), index:null, cache:{}, offline:false };
 
 async function getJSON(url){
   const r = await fetch(url + (url.includes("?")?"&":"?") + "v=" + Date.now(), {cache:"no-store"});
@@ -376,6 +377,20 @@ const GENRES = [["act","Action & aventure"],["cmy","Comédie"],["drm","Drame"],[
   ["scf","Science-fiction"],["fnt","Fantastique"],["hrr","Horreur"],["rma","Romance"],["ani","Animation"],["fml","Famille"],
   ["doc","Documentaire"],["hst","Histoire"],["war","Guerre"],["wsn","Western"],["msc","Musique"],["spt","Sport"],["rly","Téléréalité"]];
 const GLABEL = Object.fromEntries(GENRES);
+// Secours si la source n’a pas fourni de genres : on les devine d’après le résumé
+const GUESS = [["cmy",/(comédie|comique|humour|drôle|hilarant|loufoque|sitcom)/i],["scf",/(science-fiction|futuriste|dans le futur|extraterrestre|alien|espace|vaisseau|robot|dystop|voyage dans le temps)/i],
+  ["fnt",/(fantastique|magie|magique|sorci|dragon|surnaturel|fantôme|vampire|super-héros|super héros|pouvoirs)/i],["ani",/(animation|animé|dessin animé|manga|anime)/i],
+  ["hrr",/(horreur|terrifi|épouvante|démon|possédé|zombie|tueur masqué)/i],["crm",/(enquête|enquêteur|inspecteur|policier|meurtre|crime|détective|mafia|gang)/i],
+  ["trl",/(thriller|suspense|traque|complot|otage|espion)/i],["act",/(action|aventure|combat|mission|explosi|course-poursuite)/i],
+  ["rma",/(romance|amoureux|amour|coup de foudre|mariage|rencontre)/i],["doc",/(documentaire|témoignages|archives|retrace)/i],
+  ["fml",/(famille|enfants|noël|pour toute la famille)/i],["drm",/(drame|dramatique|deuil|bouleverse)/i],
+  ["rly",/(candidats|téléréalité|télé-réalité|compétition|émission)/i],["hst",/(histoire vraie|historique|siècle|guerre mondiale)/i],
+  ["war",/(guerre|soldat|front|militaire)/i],["spt",/(sport|football|boxe|basket|champion)/i],["msc",/(musique|chanteu|concert|groupe de rock|rappeur)/i]];
+function genresOf(it){
+  if (it.g && it.g.length) return it.g;
+  if (!it._g){ const txt = (it.o||"") + " " + (it.season||""); it._g = GUESS.filter(([,re])=>re.test(txt)).map(([g])=>g).slice(0,3); }
+  return it._g;
+}
 const SUBS = [["fav","Favoris ♥"],["series","Top 10 séries"],["films","Top 10 films"],["newSeries","Nouvelles séries"],["newFilms","Nouveaux films"],["soon","Bientôt"],["mine","Ma liste ★"]];
 function renderFilters(){
   const box = document.getElementById("filters"); box.textContent="";
@@ -492,7 +507,7 @@ function streamRow(it, i, o){
         o.showPlat && pinfo ? (()=>{ const t = el("span",{class:"tag plat-tag"}, pinfo[1]); t.style.setProperty("--pc", pinfo[2]); return t; })() : null,
         o.isNew ? el("span",{class:"tag new"},"Nouveau") : null,
         el("span",{class:"tag"}, isFilm ? "Film" : "Série"),
-        ...(it.g||[]).filter(g=>GLABEL[g]).slice(0,2).map(g=>el("span",{class:"tag"+(state.genres.has(g)?" new":"")}, GLABEL[g])),
+        ...genresOf(it).filter(g=>GLABEL[g]).slice(0,2).map(g=>el("span",{class:"tag"+(state.genres.has(g)?" new":"")}, GLABEL[g])),
         it.note ? el("span",{class:"tag"}, "★ " + String(it.note).replace(".",",")) : null,
         trailer(name, isFilm ? "film" : "serie", isFilm ? it.y : "", it.yt))),
     el("button",{class:"star",type:"button","aria-pressed":String(saved),
@@ -517,20 +532,33 @@ function renderStream(){
     const seen = new Set(), items = [];
     for (const [pk] of PLATS){
       const P = state.stream?.platforms?.[pk]; if (!P) continue;
-      const add = (list, kind, origin) => (list||[]).forEach(it => {
+      const add = (list, kind0, origin) => (list||[]).forEach(it => {
+        const kind = kind0 || it.k || "film";
         const k = kind + "|" + wkey(it.t_fr || it.t);
-        if (seen.has(k) || !(it.g||[]).some(g=>state.genres.has(g))) return;
-        seen.add(k); items.push({it, kind, plat:pk, origin, score:(it.g||[]).filter(g=>state.genres.has(g)).length});
+        const gs = genresOf(it);
+        if (seen.has(k) || !gs.some(g=>state.genres.has(g))) return;
+        seen.add(k); items.push({it, kind, plat:pk, origin, gs, score:gs.filter(g=>state.genres.has(g)).length});
       });
       add(P.news?.films, "film", "Nouveauté"); add(P.news?.series, "serie", "Nouveauté");
       add(P.top?.films, "film", "Top 10"); add(P.top?.series, "serie", "Top 10");
+      add(P.soon, null, "Bientôt");
     }
     items.sort((a,b) => b.score-a.score || (b.it.date||b.it.y||"").localeCompare(a.it.date||a.it.y||""));
-    sub.textContent = items.length + " titre" + (items.length>1?"s":"") + " pour vous : " + [...state.genres].map(g=>GLABEL[g]).join(", ");
-    grid.append(el("li",{class:"note"}, el("button",{class:"f",type:"button",onclick:()=>{ grid.prepend(genrePicker()); window.scrollTo({top:0}); }},"Modifier mes catégories")));
-    items.forEach(({it,kind,plat,origin},i) => grid.append(streamRow(it, i, {kind, plat, showPlat:true,
-      meta: origin + (it.date ? ", sorti le " + fmtDate(it.date) : it.y ? ", " + it.y : "")})));
-    if (!items.length) grid.append(el("li",{class:"empty"}, el("p",{},"Aucun titre ne correspond pour le moment. Essayez d’ajouter d’autres catégories.")));
+    // une catégorie par genre choisi, avec le nombre de titres
+    if (state.favGenre!=="all" && !state.genres.has(state.favGenre)) state.favGenre = "all";
+    const chips = el("li",{class:"chips favchips"});
+    const chip = (id,label,n) => chips.append(el("button",{class:"f",type:"button","aria-pressed":String(state.favGenre===id),
+      onclick:()=>{ state.favGenre=id; renderStream(); window.scrollTo({top:0}); }}, label + " (" + n + ")"));
+    chip("all","Toutes", items.length);
+    for (const g of GENRES.map(x=>x[0]).filter(g=>state.genres.has(g)))
+      chip(g, GLABEL[g], items.filter(x=>x.gs.includes(g)).length);
+    chips.append(el("button",{class:"f",type:"button",onclick:()=>{ grid.prepend(genrePicker()); window.scrollTo({top:0}); }},"✎ Modifier"));
+    grid.append(chips);
+    const shownItems = state.favGenre==="all" ? items : items.filter(x=>x.gs.includes(state.favGenre));
+    sub.textContent = shownItems.length + " titre" + (shownItems.length>1?"s":"") + (state.favGenre==="all" ? " dans vos catégories" : " en " + GLABEL[state.favGenre].toLowerCase());
+    if (!shownItems.length) grid.append(el("li",{class:"empty"}, el("p",{},"Rien dans cette catégorie pour le moment.")));
+    shownItems.forEach(({it,kind,plat,origin},i) => grid.append(streamRow(it, i, {kind, plat, showPlat:true,
+      meta: origin + (it.date ? (daysUntil(it.date)>0 ? ", le " : ", sorti le ") + fmtDate(it.date) : it.y ? ", " + it.y : "")})));
     return;
   }
 
