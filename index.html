@@ -545,18 +545,31 @@ function renderStream(){
       add(P.popular?.films, "film", "Top 30"); add(P.popular?.series, "serie", "Top 30");
       add(P.soon, null, "Bientôt");
     }
-    items.sort((a,b) => b.score-a.score || (b.it.date||b.it.y||"").localeCompare(a.it.date||a.it.y||""));
+    // Les animés ont leur propre catégorie : on ne les mélange pas aux autres si « Animé / manga » est choisi
+    const isAnime = x => x.gs.includes("anm");
+    const ORIGIN = {"Top 10":0, "Nouveauté":1, "Bientôt":2, "Top 30":3, "Populaire":4};
+    const byDate = (a,b) => (b.it.date||b.it.y||"").localeCompare(a.it.date||a.it.y||"");
+    items.sort((a,b) => (ORIGIN[a.origin]??9)-(ORIGIN[b.origin]??9) || byDate(a,b));
+    const inCat = (x, g) => {
+      if (!x.gs.includes(g)) return false;
+      if (state.genres.has("anm") && g!=="anm" && isAnime(x)) return false;
+      if (g==="ani" && state.genres.has("anm") && isAnime(x)) return false;
+      return true;
+    };
+    // dans une catégorie : d’abord les titres dont c’est le genre principal, puis par origine et date
+    const rankIn = g => (a,b) => (a.gs[0]===g ? 0 : a.gs.indexOf(g)) - (b.gs[0]===g ? 0 : b.gs.indexOf(g))
+      || (ORIGIN[a.origin]??9)-(ORIGIN[b.origin]??9) || byDate(a,b);
     // une catégorie par genre choisi, avec le nombre de titres
     if (state.favGenre!=="all" && !state.genres.has(state.favGenre)) state.favGenre = "all";
     const chips = el("li",{class:"chips favchips"});
     const chip = (id,label,n) => chips.append(el("button",{class:"f",type:"button","aria-pressed":String(state.favGenre===id),
-      onclick:()=>{ state.favGenre=id; renderStream(); window.scrollTo({top:0}); }}, label + " (" + n + ")"));
+      onclick:()=>{ state.favGenre=id; saveUI(); renderStream(); window.scrollTo({top:0}); }}, label + " (" + n + ")"));
     chip("all","Toutes", items.length);
     for (const g of GENRES.map(x=>x[0]).filter(g=>state.genres.has(g)))
-      chip(g, GLABEL[g], items.filter(x=>x.gs.includes(g)).length);
+      chip(g, GLABEL[g], items.filter(x=>inCat(x,g)).length);
     chips.append(el("button",{class:"f",type:"button",onclick:()=>{ grid.prepend(genrePicker()); window.scrollTo({top:0}); }},"✎ Modifier"));
     grid.append(chips);
-    const shownItems = state.favGenre==="all" ? items : items.filter(x=>x.gs.includes(state.favGenre));
+    const shownItems = state.favGenre==="all" ? items : items.filter(x=>inCat(x,state.favGenre)).sort(rankIn(state.favGenre));
     sub.textContent = shownItems.length + " titre" + (shownItems.length>1?"s":"") + (state.favGenre==="all" ? " dans vos catégories" : " en " + GLABEL[state.favGenre].toLowerCase());
     if (!shownItems.length) grid.append(el("li",{class:"empty"}, el("p",{},"Rien dans cette catégorie pour le moment.")));
     shownItems.forEach(({it,kind,plat,origin},i) => grid.append(streamRow(it, i, {kind, plat, showPlat:true,
@@ -674,6 +687,7 @@ function toggleFav(num){
   state.favs.has(num) ? state.favs.delete(num) : state.favs.add(num);
   store.set("tnt-favs",[...state.favs]); render(true);
 }
+function saveUI(){ store.set("tnt-ui", {view:state.view, sub:state.sub, plat:state.plat, filter:state.filter, favGenre:state.favGenre, day:state.day}); }
 function setView(v){
   state.view = v;
   document.getElementById("vNow").setAttribute("aria-pressed",String(v==="now"));
@@ -687,6 +701,7 @@ document.getElementById("vStream").addEventListener("click",()=>setView("stream"
 
 async function render(keepScroll){
   if (!keepScroll) window.scrollTo({top:0, behavior:"instant"});
+  saveUI();
   renderDays(); renderPlats(); renderFilters(); await renderGrid();
   const sel = document.querySelector('.day[aria-pressed="true"]');
   if (sel) sel.scrollIntoView({block:"nearest",inline:"center"});
@@ -706,6 +721,18 @@ applyTheme();
 // ---------- Démarrage : recharge les données à chaque ouverture ----------
 if (state.favs.size) state.filter = "fav";
 if (state.genres.size) state.sub = "fav";
+// on reprend l’onglet où l’on était (actualisation, réouverture)
+(() => {
+  const ui = store.get("tnt-ui", null); if (!ui) return;
+  if (["now","night","stream"].includes(ui.view)) state.view = ui.view;
+  if (SUBS.some(x=>x[0]===ui.sub)) state.sub = ui.sub;
+  if (PLATS.some(x=>x[0]===ui.plat)) state.plat = ui.plat;
+  if (FILTERS.some(x=>x[0]===ui.filter)) state.filter = ui.filter;
+  if (ui.favGenre) state.favGenre = ui.favGenre;
+  if (ui.day) state.day = ui.day;
+  for (const [id,v] of [["vNow","now"],["vNight","night"],["vStream","stream"]])
+    document.getElementById(id).setAttribute("aria-pressed", String(state.view===v));
+})();
 async function start(keep){
   state.offline = false; state.cache = {};
   await Promise.all([loadIndex(), loadStream(), loadWhere()]); cleanOldDays();
