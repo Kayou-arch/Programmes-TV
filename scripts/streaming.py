@@ -92,12 +92,19 @@ query Titles($country: Country!, $language: Language!, $first: Int!, $filter: Ti
         externalIds { imdbId }
         scoring { imdbScore }
         genres { shortName }
+        productionCountries
       }
     } }
   }
 }"""
 # originalTitle peut ne pas exister selon les versions de l’API : requête de secours sans ce champ
-JW_QUERY_SAFE = JW_QUERY.replace("originalTitle ", "")
+JW_QUERY_SAFE = JW_QUERY.replace("originalTitle ", "").replace("productionCountries", "")
+
+def anime_tag(genres, countries):
+    """Animé / manga : animation produite au Japon."""
+    if "ani" in genres and "JP" in (countries or []) and "anm" not in genres:
+        genres = ["anm"] + genres
+    return genres
 
 def jw_titles(filt, first=40):
     payload = {"query": JW_QUERY, "variables": {"country": COUNTRY, "language": "fr", "first": first, "filter": filt}}
@@ -119,7 +126,8 @@ def jw_titles(filt, first=40):
             "p": "https://images.justwatch.com" + c["posterUrl"] if c.get("posterUrl") else None,
             "imdb": (c.get("externalIds") or {}).get("imdbId"),
             "note": (c.get("scoring") or {}).get("imdbScore"),
-            "g": [g.get("shortName") for g in (c.get("genres") or []) if g and g.get("shortName")][:4],
+            "g": anime_tag([g.get("shortName") for g in (c.get("genres") or []) if g and g.get("shortName")][:4],
+                           c.get("productionCountries") or []),
         })
     time.sleep(0.3)
     return out
@@ -224,7 +232,7 @@ def jw_popular(packages, kind, first=10, min_year=None):
     return jw_titles(filt, first)
 
 # ================================================================ TVmaze (séries)
-TVMAZE_GENRES = {"Action": "act", "Adventure": "act", "Anime": "ani", "Comedy": "cmy", "Crime": "crm",
+TVMAZE_GENRES = {"Action": "act", "Adventure": "act", "Anime": "anm", "Comedy": "cmy", "Crime": "crm",
                  "Documentary": "doc", "Drama": "drm", "Family": "fml", "Children": "fml", "Fantasy": "fnt",
                  "History": "hst", "Horror": "hrr", "Romance": "rma", "Science-Fiction": "scf", "Thriller": "trl",
                  "Mystery": "trl", "Espionage": "trl", "War": "war", "Western": "wsn", "Music": "msc",
@@ -235,6 +243,9 @@ def tvmaze_card(show):
     g = [TVMAZE_GENRES[x] for x in show.get("genres") or [] if x in TVMAZE_GENRES]
     if (show.get("type") or "") == "Reality": g.append("rly")
     if (show.get("type") or "") == "Documentary": g.append("doc")
+    if (show.get("type") or "") == "Animation":
+        g.append("anm" if (show.get("language") or "") == "Japanese" else "ani")
+    if "anm" in g and "ani" not in g: g.append("ani")
     return {"p": (img.get("medium") or img.get("original") or "").replace("http://", "https://") or None,
             "o": short(strip_html(show.get("summary"))), "y": (show.get("premiered") or "")[:4],
             "note": (show.get("rating") or {}).get("average"), "g": list(dict.fromkeys(g))[:4]}
@@ -438,6 +449,17 @@ def build(key, cfg, tmdb, tvm_new, nf_top=None, nf_recent=None, tvm_soon=None):
         enrich(it, "serie", pk, tmdb)
     series.sort(key=lambda x: x.get("date") or x.get("y") or "", reverse=True)
     plat["news"]["series"] = series
+
+    # Animés / mangas populaires sur la plateforme (animation japonaise)
+    anime = safe(jw_titles, {"packages": pk, "genres": ["ani"], "productionCountries": ["JP"],
+                             "objectTypes": ["SHOW", "MOVIE"], "includeTitlesWithoutUrl": True}, 20, default=[]) or []
+    anime = dedupe([dict(it, t=it.get("t_orig") or it["t_fr"]) for it in anime])
+    for it in anime:
+        it["k"] = it.get("kind", "serie")
+        if "anm" not in (it.get("g") or []):
+            it["g"] = ["anm"] + (it.get("g") or [])
+        enrich(it, it["k"], pk, tmdb)
+    plat["anime"] = anime
 
     # Bientôt : films (Wikidata) et séries / saisons (TVmaze) annoncés dans les 45 prochains jours
     soon = [dict(it, kind="film") for it in (safe(wikidata_films, cfg["wd"], TODAY + dt.timedelta(days=1),
