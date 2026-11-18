@@ -374,12 +374,12 @@ function renderPlats(){
   }
 }
 const GENRES = [["act","Action & aventure"],["cmy","Comédie"],["drm","Drame"],["crm","Policier"],["trl","Thriller"],
-  ["scf","Science-fiction"],["fnt","Fantastique"],["hrr","Horreur"],["rma","Romance"],["ani","Animation"],["fml","Famille"],
+  ["scf","Science-fiction"],["fnt","Fantastique"],["hrr","Horreur"],["rma","Romance"],["anm","Animé / manga"],["ani","Animation"],["fml","Famille"],
   ["doc","Documentaire"],["hst","Histoire"],["war","Guerre"],["wsn","Western"],["msc","Musique"],["spt","Sport"],["rly","Téléréalité"]];
 const GLABEL = Object.fromEntries(GENRES);
 // Secours si la source n’a pas fourni de genres : on les devine d’après le résumé
 const GUESS = [["cmy",/(comédie|comique|humour|drôle|hilarant|loufoque|sitcom)/i],["scf",/(science-fiction|futuriste|dans le futur|extraterrestre|alien|espace|vaisseau|robot|dystop|voyage dans le temps)/i],
-  ["fnt",/(fantastique|magie|magique|sorci|dragon|surnaturel|fantôme|vampire|super-héros|super héros|pouvoirs)/i],["ani",/(animation|animé|dessin animé|manga|anime)/i],
+  ["fnt",/(fantastique|magie|magique|sorci|dragon|surnaturel|fantôme|vampire|super-héros|super héros|pouvoirs)/i],["anm",/(manga|animé japonais|anime|shōnen|shonen|studio ghibli|crunchyroll)/i],["ani",/(animation|animé|dessin animé|manga|anime)/i],
   ["hrr",/(horreur|terrifi|épouvante|démon|possédé|zombie|tueur masqué)/i],["crm",/(enquête|enquêteur|inspecteur|policier|meurtre|crime|détective|mafia|gang)/i],
   ["trl",/(thriller|suspense|traque|complot|otage|espion)/i],["act",/(action|aventure|combat|mission|explosi|course-poursuite)/i],
   ["rma",/(romance|amoureux|amour|coup de foudre|mariage|rencontre)/i],["doc",/(documentaire|témoignages|archives|retrace)/i],
@@ -541,6 +541,7 @@ function renderStream(){
       });
       add(P.news?.films, "film", "Nouveauté"); add(P.news?.series, "serie", "Nouveauté");
       add(P.top?.films, "film", "Top 10"); add(P.top?.series, "serie", "Top 10");
+      add(P.anime, null, "Populaire");
       add(P.soon, null, "Bientôt");
     }
     items.sort((a,b) => b.score-a.score || (b.it.date||b.it.y||"").localeCompare(a.it.date||a.it.y||""));
