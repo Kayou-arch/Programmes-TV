@@ -91,6 +91,7 @@ query Titles($country: Country!, $language: Language!, $first: Int!, $filter: Ti
         posterUrl(profile: S332, format: JPG)
         externalIds { imdbId }
         scoring { imdbScore }
+        genres { shortName }
       }
     } }
   }
@@ -118,6 +119,7 @@ def jw_titles(filt, first=40):
             "p": "https://images.justwatch.com" + c["posterUrl"] if c.get("posterUrl") else None,
             "imdb": (c.get("externalIds") or {}).get("imdbId"),
             "note": (c.get("scoring") or {}).get("imdbScore"),
+            "g": [g.get("shortName") for g in (c.get("genres") or []) if g and g.get("shortName")][:4],
         })
     time.sleep(0.3)
     return out
@@ -222,11 +224,20 @@ def jw_popular(packages, kind, first=10, min_year=None):
     return jw_titles(filt, first)
 
 # ================================================================ TVmaze (séries)
+TVMAZE_GENRES = {"Action": "act", "Adventure": "act", "Anime": "ani", "Comedy": "cmy", "Crime": "crm",
+                 "Documentary": "doc", "Drama": "drm", "Family": "fml", "Children": "fml", "Fantasy": "fnt",
+                 "History": "hst", "Horror": "hrr", "Romance": "rma", "Science-Fiction": "scf", "Thriller": "trl",
+                 "Mystery": "trl", "Espionage": "trl", "War": "war", "Western": "wsn", "Music": "msc",
+                 "Sports": "spt", "Supernatural": "fnt", "Medical": "drm", "Legal": "crm", "Reality": "rly"}
+
 def tvmaze_card(show):
     img = show.get("image") or {}
+    g = [TVMAZE_GENRES[x] for x in show.get("genres") or [] if x in TVMAZE_GENRES]
+    if (show.get("type") or "") == "Reality": g.append("rly")
+    if (show.get("type") or "") == "Documentary": g.append("doc")
     return {"p": (img.get("medium") or img.get("original") or "").replace("http://", "https://") or None,
             "o": short(strip_html(show.get("summary"))), "y": (show.get("premiered") or "")[:4],
-            "note": (show.get("rating") or {}).get("average")}
+            "note": (show.get("rating") or {}).get("average"), "g": list(dict.fromkeys(g))[:4]}
 
 def tvmaze_lookup(name):
     try:
@@ -334,7 +345,7 @@ class Tmdb:
 # ================================================================ enrichissement commun
 def fill(item, src):
     if not src: return
-    for k in ("t_fr", "o", "p", "y", "note", "date"):
+    for k in ("t_fr", "o", "p", "y", "note", "date", "g"):
         v = src.get(k)
         if v and not item.get(k):
             item[k] = v
@@ -342,7 +353,7 @@ def fill(item, src):
 def enrich(item, kind, packages=None, tmdb=None):
     """Titre français, affiche, résumé, année, bande-annonce : jamais de case vide."""
     title = item.get("t") or item.get("t_fr")
-    if not (item.get("t_fr") and item.get("p") and item.get("o")):
+    if not (item.get("t_fr") and item.get("p") and item.get("o") and item.get("g")):
         fill(item, jw_find(title, kind, packages, item.get("y") if kind == "film" else None))
     if tmdb and not (item.get("p") and item.get("o")):
         fill(item, tmdb.find(title, kind))
