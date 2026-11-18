@@ -5,9 +5,16 @@ on:
     - cron: "15 3 * * *"   # chaque nuit (vers 4h15 / 5h15 à Paris)
     - cron: "15 15 * * *"  # et chaque après-midi
   workflow_dispatch:        # bouton « Run workflow » pour lancer à la main
+  push:                     # envoi d’un fichier mise-a-jour*.zip : installation automatique
+    paths:
+      - "mise-a-jour*.zip"
 
 permissions:
   contents: write
+
+concurrency:
+  group: mise-a-jour
+  cancel-in-progress: false
 
 jobs:
   update:
@@ -17,17 +24,32 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Installer la nouvelle version (zip envoyé)
+        run: |
+          shopt -s nullglob
+          for z in mise-a-jour*.zip; do
+            echo "Installation de $z"
+            # le dossier .github ne peut pas être modifié automatiquement : il est ignoré
+            unzip -o "$z" -x ".github/*" "data/*" -d .
+            git rm -q --cached "$z" 2>/dev/null || true
+            rm -f "$z"
+          done
+
       - name: Télécharger et convertir le guide
         run: python scripts/update.py
-      - name: Top 10 et nouveautés Netflix
+
+      - name: Streaming (Netflix, Prime Video, Disney+)
         continue-on-error: true
         env:
           TMDB_KEY: ${{ secrets.TMDB_KEY }}
         run: python scripts/streaming.py
-      - name: Enregistrer les nouvelles données
+
+      - name: Enregistrer
         run: |
           git config user.name "programme-tnt-bot"
           git config user.email "actions@users.noreply.github.com"
-          git add data
+          git pull --rebase --autostash -q || true
+          git add -A
           git diff --cached --quiet || git commit -m "Programmes du $(date +'%d/%m/%Y %H:%M')"
           git push
