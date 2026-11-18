@@ -130,6 +130,11 @@ ul.grid{list-style:none;margin:0;padding:0 8px 8px}
 .where{margin:7px 0 0;font-size:.82rem;color:var(--muted);display:flex;flex-wrap:wrap;gap:5px;align-items:center}
 .where a{font-weight:700;color:var(--ink);text-decoration:none;border:1px solid var(--line);border-radius:6px;padding:1px 7px;background:var(--bg)}
 .tag.plat-tag{color:#fff;background:var(--pc,#555)}
+.sep{list-style:none;margin:14px 8px 2px;font-size:.78rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.picker{list-style:none;background:var(--surface);border-radius:14px;padding:14px;margin:6px 0}
+.picker .d{-webkit-line-clamp:unset;display:block}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}
+.picker .ok{border:0;background:var(--signal);color:var(--signal-ink);font-weight:800;border-radius:999px;padding:9px 20px}
 footer{padding:18px 20px 32px;color:var(--muted);font-size:.8rem;text-align:center}
 @media (prefers-reduced-motion: reduce){.sheet{transition:none}}
 </style>
@@ -260,7 +265,7 @@ function el(tag, attrs={}, ...kids){
 
 // ---------- État ----------
 const FILTERS = [["all","Tout"],["fav","Mes chaînes ★"],[G.F,"Films"],[G.S,"Séries"],[G.SP,"Sport"],[G.DV,"Divertissement"],[G.DOC,"Documentaires"],[G.MAG,"Magazines"],[G.IN,"Info"],[G.AN,"Jeunesse"],["new","Inédits"]];
-const state = { where:{}, mylist:store.get("tnt-mylist",{}), plat:store.get("tnt-plat","netflix"), stream:null, sub:"series", view:"now", day:keyOf(new Date()), filter:"all", favs:new Set(store.get("tnt-favs",[])), index:null, cache:{}, offline:false };
+const state = { genres:new Set(store.get("tnt-genres",[])), where:{}, mylist:store.get("tnt-mylist",{}), plat:store.get("tnt-plat","netflix"), stream:null, sub:"series", view:"now", day:keyOf(new Date()), filter:"all", favs:new Set(store.get("tnt-favs",[])), index:null, cache:{}, offline:false };
 
 async function getJSON(url){
   const r = await fetch(url + (url.includes("?")?"&":"?") + "v=" + Date.now(), {cache:"no-store"});
@@ -359,7 +364,7 @@ function renderDays(){
 const PLATS = [["netflix","Netflix","#E50914"],["prime","Prime Video","#1A98FF"],["disney","Disney+","#113CCF"]];
 function renderPlats(){
   const box = document.getElementById("plats"); box.textContent = "";
-  box.hidden = state.view!=="stream" || state.sub==="mine";
+  box.hidden = state.view!=="stream" || state.sub==="mine" || state.sub==="fav";
   if (box.hidden) return;
   for (const [id,label,color] of PLATS){
     const b = el("button",{class:"plat",type:"button","aria-pressed":String(id===state.plat),onclick:()=>{ state.plat=id; store.set("tnt-plat",id); render(); }},label);
@@ -367,7 +372,11 @@ function renderPlats(){
     box.append(b);
   }
 }
-const SUBS = [["series","Top 10 séries"],["films","Top 10 films"],["newSeries","Nouvelles séries"],["newFilms","Nouveaux films"],["soon","Bientôt"],["mine","Ma liste ★"]];
+const GENRES = [["act","Action & aventure"],["cmy","Comédie"],["drm","Drame"],["crm","Policier"],["trl","Thriller"],
+  ["scf","Science-fiction"],["fnt","Fantastique"],["hrr","Horreur"],["rma","Romance"],["ani","Animation"],["fml","Famille"],
+  ["doc","Documentaire"],["hst","Histoire"],["war","Guerre"],["wsn","Western"],["msc","Musique"],["spt","Sport"],["rly","Téléréalité"]];
+const GLABEL = Object.fromEntries(GENRES);
+const SUBS = [["fav","Favoris ♥"],["series","Top 10 séries"],["films","Top 10 films"],["newSeries","Nouvelles séries"],["newFilms","Nouveaux films"],["soon","Bientôt"],["mine","Ma liste ★"]];
 function renderFilters(){
   const box = document.getElementById("filters"); box.textContent="";
   if (state.view==="stream"){
@@ -403,10 +412,17 @@ async function renderGrid(){
   sub.className = state.offline ? "warn" : "";
   grid.textContent = "";
   let shown = 0;
-  for (const [num,name] of CHANNELS){
+  // Mes chaînes d’abord, puis les autres
+  const ordered = [...CHANNELS.filter(c=>state.favs.has(c[0])), ...CHANNELS.filter(c=>!state.favs.has(c[0]))];
+  let sepDone = false;
+  for (const [num,name] of ordered){
     const list = data[num];
     const p = state.view==="now" ? onAir(list,t) : primeTime(list,dayKey,num);
     if (!passes(num,p)) continue;
+    if (state.favs.size && !sepDone && !state.favs.has(num) && shown){
+      grid.append(el("li",{class:"sep"},"Autres chaînes")); sepDone = true;
+    }
+    if (state.favs.size && !shown && state.favs.has(num) && state.filter!=="fav") grid.append(el("li",{class:"sep"},"Mes chaînes"));
     shown++;
     const g = p ? genre(p.c) : null, fav = state.favs.has(num), nx = nextAfter(list,p);
     let bar = null;
@@ -476,6 +492,7 @@ function streamRow(it, i, o){
         o.showPlat && pinfo ? (()=>{ const t = el("span",{class:"tag plat-tag"}, pinfo[1]); t.style.setProperty("--pc", pinfo[2]); return t; })() : null,
         o.isNew ? el("span",{class:"tag new"},"Nouveau") : null,
         el("span",{class:"tag"}, isFilm ? "Film" : "Série"),
+        ...(it.g||[]).filter(g=>GLABEL[g]).slice(0,2).map(g=>el("span",{class:"tag"+(state.genres.has(g)?" new":"")}, GLABEL[g])),
         it.note ? el("span",{class:"tag"}, "★ " + String(it.note).replace(".",",")) : null,
         trailer(name, isFilm ? "film" : "serie", isFilm ? it.y : "", it.yt))),
     el("button",{class:"star",type:"button","aria-pressed":String(saved),
@@ -488,6 +505,34 @@ function renderStream(){
   grid.textContent = ""; sub.className = "";
   const pname = PLATS.find(x=>x[0]===state.plat)[1];
   const label = SUBS.find(x=>x[0]===state.sub)[1];
+
+  if (state.sub==="fav"){
+    title.textContent = "Favoris";
+    if (!state.genres.size){
+      sub.textContent = "Choisissez les catégories qui vous intéressent";
+      grid.append(genrePicker());
+      return;
+    }
+    // tous les titres des 3 plateformes qui correspondent aux catégories choisies
+    const seen = new Set(), items = [];
+    for (const [pk] of PLATS){
+      const P = state.stream?.platforms?.[pk]; if (!P) continue;
+      const add = (list, kind, origin) => (list||[]).forEach(it => {
+        const k = kind + "|" + wkey(it.t_fr || it.t);
+        if (seen.has(k) || !(it.g||[]).some(g=>state.genres.has(g))) return;
+        seen.add(k); items.push({it, kind, plat:pk, origin, score:(it.g||[]).filter(g=>state.genres.has(g)).length});
+      });
+      add(P.news?.films, "film", "Nouveauté"); add(P.news?.series, "serie", "Nouveauté");
+      add(P.top?.films, "film", "Top 10"); add(P.top?.series, "serie", "Top 10");
+    }
+    items.sort((a,b) => b.score-a.score || (b.it.date||b.it.y||"").localeCompare(a.it.date||a.it.y||""));
+    sub.textContent = items.length + " titre" + (items.length>1?"s":"") + " pour vous : " + [...state.genres].map(g=>GLABEL[g]).join(", ");
+    grid.append(el("li",{class:"note"}, el("button",{class:"f",type:"button",onclick:()=>{ grid.prepend(genrePicker()); window.scrollTo({top:0}); }},"Modifier mes catégories")));
+    items.forEach(({it,kind,plat,origin},i) => grid.append(streamRow(it, i, {kind, plat, showPlat:true,
+      meta: origin + (it.date ? ", sorti le " + fmtDate(it.date) : it.y ? ", " + it.y : "")})));
+    if (!items.length) grid.append(el("li",{class:"empty"}, el("p",{},"Aucun titre ne correspond pour le moment. Essayez d’ajouter d’autres catégories.")));
+    return;
+  }
 
   if (state.sub==="mine"){
     title.textContent = "Ma liste";
@@ -539,6 +584,22 @@ function renderStream(){
     + "Titres, affiches et résumés recoupés entre JustWatch, TVmaze, Wikidata et IMDb ; résumés traduits en français si besoin."));
 }
 
+function genrePicker(){
+  const box = el("li",{class:"picker"},
+    el("p",{class:"t"},"Mes catégories préférées"),
+    el("p",{class:"d"},"Touchez pour sélectionner. Les titres de ces catégories apparaîtront dans Favoris."));
+  const chips = el("div",{class:"chips"});
+  for (const [g,label] of GENRES){
+    const b = el("button",{class:"f",type:"button","aria-pressed":String(state.genres.has(g)),onclick:()=>{
+      state.genres.has(g) ? state.genres.delete(g) : state.genres.add(g);
+      b.setAttribute("aria-pressed", String(state.genres.has(g)));
+    }}, label);
+    chips.append(b);
+  }
+  box.append(chips, el("button",{class:"ok",type:"button",onclick:()=>{ store.set("tnt-genres",[...state.genres]); render(); }},"Valider"));
+  return box;
+}
+
 // ---------- Journée d’une chaîne ----------
 const sheet = document.getElementById("sheet"), sheetBg = document.getElementById("sheetBg");
 let lastFocus = null;
@@ -581,7 +642,7 @@ document.addEventListener("keydown", e=>{ if (e.key==="Escape" && !sheet.hidden)
 // ---------- Actions ----------
 function toggleFav(num){
   state.favs.has(num) ? state.favs.delete(num) : state.favs.add(num);
-  store.set("tnt-favs",[...state.favs]); render();
+  store.set("tnt-favs",[...state.favs]); render(true);
 }
 function setView(v){
   state.view = v;
@@ -594,7 +655,8 @@ document.getElementById("vNow").addEventListener("click",()=>setView("now"));
 document.getElementById("vNight").addEventListener("click",()=>setView("night"));
 document.getElementById("vStream").addEventListener("click",()=>setView("stream"));
 
-async function render(){
+async function render(keepScroll){
+  if (!keepScroll) window.scrollTo({top:0, behavior:"instant"});
   renderDays(); renderPlats(); renderFilters(); await renderGrid();
   const sel = document.querySelector('.day[aria-pressed="true"]');
   if (sel) sel.scrollIntoView({block:"nearest",inline:"center"});
@@ -612,15 +674,17 @@ document.getElementById("theme").addEventListener("click",()=>{ theme=THEMES[(TH
 applyTheme();
 
 // ---------- Démarrage : recharge les données à chaque ouverture ----------
-async function start(){
+if (state.favs.size) state.filter = "fav";
+if (state.genres.size) state.sub = "fav";
+async function start(keep){
   state.offline = false; state.cache = {};
   await Promise.all([loadIndex(), loadStream(), loadWhere()]); cleanOldDays();
   const today = keyOf(new Date());
   if (!state.index?.days?.includes(state.day) || state.day<today) state.day = today;
-  await render();
+  await render(keep);
 }
 start();
-document.addEventListener("visibilitychange", ()=>{ if (document.visibilityState==="visible") start(); });
+document.addEventListener("visibilitychange", ()=>{ if (document.visibilityState==="visible") start(true); });
 setInterval(()=>{ if (state.view==="now" && document.visibilityState==="visible") renderGrid(); }, 60000);
 </script>
 </body>
